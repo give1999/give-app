@@ -1,50 +1,61 @@
-# Welcome to your Expo app 👋
+# Give 🤖
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+AI Chat Assistant — мобильное приложение для общения с искусственным интеллектом через OpenAI-совместимые API.
 
-## Get started
+## Возможности
 
-1. Install dependencies
+- 💬 **Чат с AI** — общайтесь с различными языковыми моделями
+- 🖼️ **Вложения** — отправляйте фото, файлы и изображения с камеры (поддержка vision-моделей)
+- 🔄 **Несколько моделей** — переключайтесь между доступными моделями в настройках
+- 📝 **Автоматические заголовки** — чаты автоматически получают названия на основе контекста
+- 🌙 **Тёмная тема** — полностью тёмный интерфейс в стиле iOS
+- ⚙️ **Гибкие настройки** — настройте системный промпт, API-ключ и endpoint
 
-   ```bash
-   npm install
-   ```
+## Технологии
 
-2. Start the app
+- [React Native](https://reactnative.dev/) — фреймворк для нативных приложений
+- [Expo](https://expo.dev/) — платформа для разработки React Native
+- [Expo Router](https://docs.expo.dev/router/introduction/) — файловая навигация
+- [Zustand](https://github.com/pmndrs/zustand) — управление состоянием
+- TypeScript — типизация
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Запуск
 
 ```bash
-npm run reset-project
+# Установка зависимостей
+npm install
+
+# Запуск на Android (через Expo Go)
+npx expo start --android
+
+# Или просто
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Настройка
 
-## Learn more
+1. Откройте приложение
+2. Нажмите на шапку "Провайдер" в боковом меню
+3. Введите:
+   - **Base URL** — адрес вашего API (например, `https://api.openai.com/v1`)
+   - **API Key** — ваш ключ
+   - **Model** — название модели (например, `gpt-4o`)
+4. Начните чат!
 
-To learn more about developing your project with Expo, look at the following resources:
+## Структура проекта
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+app/                 — Expo Router экраны
+src/
+  components/        — UI компоненты (ChatInput, MessageBubble, Drawer...)
+  screens/           — Экраны (Settings, Login, Splash...)
+  stores/            — Zustand сторы (chatStore, settingsStore)
+  lib/               — API, утилиты, хелперы
+  design/            — Тема, типографика, отступы
+  types/             — TypeScript типы
+assets/              — Изображения, иконки
+```
 
-## Join the community
+## Лицензия
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+MIT
