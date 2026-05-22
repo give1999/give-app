@@ -1,0 +1,33 @@
+// Автоматическая регистрация всех инструментов при импорте
+import './sandbox/exec';
+import './sandbox/spawn';
+import './sandbox/send';
+import './sandbox/kill';
+import './sandbox/env';
+import './sandbox/workspace';
+import './sandbox/writeScript';
+import './sandbox/installPkg';
+import './sandbox/listPkgs';
+import './web/search';
+import './web/fetch';
+import './web/fetchMarkdown';
+import './code/runPython';
+import './code/runJs';
+import './code/runSql';
+import './data/calc';
+import './data/convertUnits';
+import './data/password';
+import './data/hash';
+import './data/encode';
+import './data/uuid';
+import './text/count';
+import './text/tts';
+import './text/stt';
+import './text/translate';
+import './text/regex';
+import './daemon/submit';
+import './daemon/status';
+import './daemon/cancel';
+
+export { getAllToolDefinitions, executeTool, getTool, getAllTools, getToolsByCategory } from './registry';
+export type { Tool } from './registry';

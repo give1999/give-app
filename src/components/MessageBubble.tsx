@@ -1,24 +1,62 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
+import React, { useState, useRef, useEffect, memo } from 'react';
+import { View, Text, StyleSheet, Pressable, Image, useWindowDimensions, Clipboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, Easing } from 'react-native-reanimated';
 import Markdown from 'react-native-markdown-display';
 import { spacing, radius, typography } from '../design/theme';
-import type { Attachment } from '@/src/types';
+import type { Attachment, ToolCallDisplay } from '@/src/types';
 import FullscreenImageViewer from './FullscreenImageViewer';
+import ReasoningTicker from './ReasoningTicker';
+import ToolCallBubble from './ToolCallBubble';
 
 interface MessageBubbleProps {
+  id: string;
   text: string;
   reasoning?: string;
   isUser?: boolean;
   isAI?: boolean;
   attachments?: Attachment[];
+  isGenerating?: boolean;
+  toolCallDisplays?: ToolCallDisplay[];
+  onRegenerate?: (id: string) => void;
+  onEdit?: (id: string) => void;
 }
 
-export default function MessageBubble({ text, reasoning, isUser, isAI, attachments }: MessageBubbleProps) {
-  const [showReasoning, setShowReasoning] = useState(true);
+function MessageBubbleInner({ id, text, reasoning, isUser, isAI, attachments, isGenerating, toolCallDisplays, onRegenerate, onEdit }: MessageBubbleProps) {
+  const [showReasoning, setShowReasoning] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  const copyAnim = useSharedValue(0); // 0 = обычная иконка, 1 = галочка
+  const actionsHeight = useSharedValue(0);
+  const actionsOpacity = useSharedValue(0);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width: screenWidth } = useWindowDimensions();
   const imageMaxWidth = Math.min(250, screenWidth * 0.65);
+
+  const toggleActions = () => {
+    if (showActions) {
+      actionsHeight.value = withTiming(0, { duration: 200, easing: Easing.in(Easing.cubic) });
+      actionsOpacity.value = withTiming(0, { duration: 150 });
+      setShowActions(false);
+    } else {
+      setShowActions(true);
+      actionsHeight.value = withTiming(28, { duration: 250, easing: Easing.out(Easing.cubic) });
+      actionsOpacity.value = withTiming(1, { duration: 200 });
+    }
+  };
+
+  const actionsAnimatedStyle = useAnimatedStyle(() => ({
+    height: actionsHeight.value,
+    opacity: actionsOpacity.value,
+    overflow: 'hidden',
+    marginTop: actionsHeight.value > 0 ? spacing.xs : 0,
+  }));
+
+  const copyIconStyle = useAnimatedStyle(() => ({
+    color: copyAnim.value === 0 ? '#8E8E93' : '#FFFFFF',
+    transform: [{ scale: 1 + copyAnim.value * 0.2 }],
+  }));
 
   const renderAttachments = () => {
     if (!attachments || attachments.length === 0) return null;
@@ -27,9 +65,9 @@ export default function MessageBubble({ text, reasoning, isUser, isAI, attachmen
       <View style={[styles.attachmentsWrap, text ? styles.attachmentsWithText : null]}>
         {attachments.map((att) =>
           att.type === 'image' ? (
-            <TouchableOpacity
+            <Pressable
               key={att.id}
-              activeOpacity={0.9}
+              android_ripple={{ color: 'rgba(255,255,255,0.06)', borderless: true }}
               onPress={() => setViewerImage(att.uri)}
             >
               <Image
@@ -42,7 +80,7 @@ export default function MessageBubble({ text, reasoning, isUser, isAI, attachmen
                 ]}
                 resizeMode="cover"
               />
-            </TouchableOpacity>
+            </Pressable>
           ) : (
             <View key={att.id} style={[styles.fileCard, { maxWidth: imageMaxWidth }]}>
               <View style={styles.fileIconBox}>
@@ -61,43 +99,116 @@ export default function MessageBubble({ text, reasoning, isUser, isAI, attachmen
     );
   };
 
+  const handleCopy = () => {
+    Clipboard.setString(text);
+    setCopied(true);
+    copyAnim.value = withSequence(
+      withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) }),
+      withTiming(1, { duration: 800 }),
+      withTiming(0, { duration: 300, easing: Easing.in(Easing.cubic) }),
+    );
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 1300);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
+  }, []);
+
   return (
     <View style={isUser ? styles.userBubble : styles.aiContainer}>
       {isUser ? (
-        <>
+        <Pressable
+          android_ripple={{ color: 'rgba(255,255,255,0.08)', borderless: false }}
+          onPress={toggleActions}
+          style={styles.userBubbleInner}
+        >
           {renderAttachments()}
           {text ? <Text style={styles.userText}>{text}</Text> : null}
-        </>
+          <Animated.View style={[styles.actionsRow, actionsAnimatedStyle]} pointerEvents={showActions ? 'auto' : 'none'}>
+            <Pressable style={styles.actionBtn} onPress={handleCopy} android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}>
+              <Animated.View style={copyIconStyle}>
+                <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={16} color={copied ? '#FFFFFF' : '#8E8E93'} />
+              </Animated.View>
+            </Pressable>
+            {onEdit ? (
+              <Pressable style={styles.actionBtn} onPress={() => onEdit?.(id)} android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}>
+                <Ionicons name="create-outline" size={16} color="#8E8E93" />
+              </Pressable>
+            ) : null}
+          </Animated.View>
+        </Pressable>
       ) : (
         <>
           {reasoning ? (
             <View style={styles.reasoningWrapper}>
-              <TouchableOpacity
-                style={styles.reasoningToggle}
-                onPress={() => setShowReasoning((v) => !v)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.reasoningToggleText}>Размышление</Text>
-                <Ionicons
-                  name={showReasoning ? 'chevron-down' : 'chevron-up'}
-                  size={16}
-                  color="#8E8E93"
-                />
-              </TouchableOpacity>
-
               {showReasoning ? (
-                <View style={styles.reasoningBlock}>
-                  <Text style={styles.reasoningText}>{reasoning}</Text>
-                </View>
-              ) : null}
+                <>
+                  <Pressable
+                    style={styles.reasoningToggle}
+                    onPress={() => setShowReasoning(false)}
+                    android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+                  >
+                    <Text style={styles.reasoningToggleText}>Размышление</Text>
+                    <Ionicons name="chevron-down" size={16} color="#8E8E93" />
+                  </Pressable>
+                  <View style={styles.reasoningBlock}>
+                    <Markdown style={reasoningMarkdownStyles}>{reasoning}</Markdown>
+                  </View>
+                </>
+              ) : (
+                <Pressable
+                  style={styles.reasoningToggle}
+                  onPress={() => setShowReasoning(true)}
+                  android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+                >
+                  {isGenerating ? (
+                    <ReasoningTicker reasoning={reasoning} isGenerating={true} />
+                  ) : (
+                    <Text style={styles.reasoningToggleText}>Размышление</Text>
+                  )}
+                  <Ionicons name="chevron-up" size={16} color="#8E8E93" style={{ marginLeft: 6 }} />
+                </Pressable>
+              )}
             </View>
           ) : null}
 
           {renderAttachments()}
 
+          {isAI && toolCallDisplays && toolCallDisplays.length > 0 ? (
+            <View style={styles.toolCallsContainer}>
+              {toolCallDisplays.map((d, i) => (
+                <ToolCallBubble key={`${d.id}-${i}`} display={d} category={d.category || 'sandbox'} />
+              ))}
+            </View>
+          ) : null}
+
           {text ? (
             <View style={styles.markdownWrap}>
-              <Markdown style={markdownStyles}>{text}</Markdown>
+              {isGenerating && isAI ? (
+                <Text style={styles.streamingText}>{text}</Text>
+              ) : (
+                <Markdown style={markdownStyles}>{text.replace(/\*$/g, '\\*')}</Markdown>
+              )}
+            </View>
+          ) : null}
+
+          {isAI && !isGenerating ? (
+            <View style={styles.actionsRow}>
+              {text ? (
+                <Pressable style={styles.actionBtn} onPress={handleCopy} android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}>
+                  <Animated.View style={copyIconStyle}>
+                    <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={16} color={copied ? '#FFFFFF' : '#8E8E93'} />
+                  </Animated.View>
+                </Pressable>
+              ) : null}
+              {onRegenerate ? (
+                <Pressable style={styles.actionBtn} onPress={() => onRegenerate?.(id)} android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}>
+                  <Ionicons name="refresh" size={16} color="#8E8E93" />
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
         </>
@@ -113,6 +224,37 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+const MessageBubble = memo(MessageBubbleInner, (prev, next) => {
+  if (prev.id !== next.id) return false;
+  if (prev.text !== next.text) return false;
+  if (prev.reasoning !== next.reasoning) return false;
+  if (prev.isUser !== next.isUser) return false;
+  if (prev.isAI !== next.isAI) return false;
+  if (prev.isGenerating !== next.isGenerating) return false;
+  // toolCallDisplays shallow compare
+  const pd = prev.toolCallDisplays;
+  const nd = next.toolCallDisplays;
+  if (pd === nd) return true;
+  if (pd?.length !== nd?.length) return false;
+  if (!pd && !nd) return true;
+  for (let i = 0; i < pd!.length; i++) {
+    if (pd![i] !== nd![i]) return false;
+  }
+  // attachments shallow compare
+  const pa = prev.attachments;
+  const na = next.attachments;
+  if (pa === na) return true;
+  if (pa?.length !== na?.length) return false;
+  if (!pa && !na) return true;
+  for (let i = 0; i < pa!.length; i++) {
+    if (pa![i] !== na![i]) return false;
+  }
+  // Skip callback comparison — they're stable now
+  return true;
+});
+
+export default MessageBubble;
 
 const markdownStyles = {
   body: {
@@ -234,6 +376,126 @@ const markdownStyles = {
   },
 };
 
+const reasoningMarkdownStyles = {
+  body: {
+    color: '#A0A0A0',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  paragraph: {
+    color: '#A0A0A0',
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 0,
+    marginBottom: 6,
+  },
+  heading1: {
+    color: '#C0C0C0',
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  heading2: {
+    color: '#C0C0C0',
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  heading3: {
+    color: '#C0C0C0',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  heading4: {
+    color: '#C0C0C0',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  heading5: {
+    color: '#C0C0C0',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  heading6: {
+    color: '#C0C0C0',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  strong: {
+    color: '#B0B0B0',
+    fontWeight: 'bold' as const,
+  },
+  em: {
+    color: '#A0A0A0',
+    fontStyle: 'italic' as const,
+  },
+  link: {
+    color: '#0A84FF',
+    textDecorationLine: 'underline' as const,
+  },
+  blockquote: {
+    backgroundColor: '#1C1C1E',
+    borderLeftWidth: 3,
+    borderLeftColor: '#8E8E93',
+    paddingLeft: 10,
+    paddingVertical: 6,
+    marginVertical: 6,
+  },
+  bullet_list: {
+    marginVertical: 4,
+  },
+  ordered_list: {
+    marginVertical: 4,
+  },
+  list_item: {
+    color: '#A0A0A0',
+    fontSize: 15,
+    lineHeight: 22,
+    marginVertical: 2,
+  },
+  code_inline: {
+    backgroundColor: '#2C2C2E',
+    color: '#FF9F0A',
+    fontFamily: 'monospace',
+    fontSize: 14,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  code_block: {
+    backgroundColor: '#1C1C1E',
+    color: '#A0A0A0',
+    fontFamily: 'monospace',
+    fontSize: 13,
+    padding: 10,
+    borderRadius: radius.md,
+    marginVertical: 6,
+  },
+  fence: {
+    backgroundColor: '#1C1C1E',
+    color: '#A0A0A0',
+    fontFamily: 'monospace',
+    fontSize: 13,
+    padding: 10,
+    borderRadius: radius.md,
+    marginVertical: 6,
+  },
+  hr: {
+    backgroundColor: '#38383A',
+    height: 1,
+    marginVertical: 8,
+  },
+};
+
 const styles = StyleSheet.create({
   userBubble: {
     alignSelf: 'flex-end',
@@ -242,6 +504,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
+  },
+  userBubbleInner: {
+    width: '100%',
   },
   userText: {
     color: '#FFFFFF',
@@ -280,6 +545,24 @@ const styles = StyleSheet.create({
   },
   markdownWrap: {
     maxWidth: '100%',
+  },
+  toolCallsContainer: {
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  streamingText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    lineHeight: 24,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  actionBtn: {
+    padding: 4,
+    borderRadius: radius.sm,
   },
   // Attachment styles
   attachmentsWrap: {

@@ -4,7 +4,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CAPS_CACHE_KEY = 'give-model-caps-v1';
+const CAPS_CACHE_KEY = 'star-model-caps-v1';
 
 export interface ModelCapabilities {
   vision: boolean;

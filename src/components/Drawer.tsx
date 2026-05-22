@@ -151,17 +151,22 @@ export default function Drawer({
         {/* 2) Контент — пропускает касания к детям (кнопки, чаты), но сам не перехватывает.
               Касание на пустое место проваливается через box-none → в shield */}
         <View style={styles.contentLayer} pointerEvents={menuChatId !== null ? 'box-none' : 'auto'}>
-          <TouchableOpacity style={styles.profileHeader} onPress={onOpenSettings} activeOpacity={0.7}>
+          <Pressable
+            style={styles.profileHeader}
+            onPress={onOpenSettings}
+            android_ripple={{ color: 'rgba(255,255,255,0.1)', borderless: false }}
+          >
             <View style={styles.profileRow}>
               <View style={styles.avatar}>
-                <Ionicons name="git-network" size={20} color="#FFFFFF" />
+                <Ionicons name="settings-outline" size={22} color="#8E8E93" />
               </View>
               <View style={styles.profileInfo}>
-                <Text style={styles.userName}>Провайдер</Text>
+                <Text style={styles.userName}>Настройки</Text>
+                <Text style={styles.profileSub}>Провайдер, персонализация, агент</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#8E8E93" />
             </View>
-          </TouchableOpacity>
+          </Pressable>
 
           <ScrollView
             style={styles.chatList}
@@ -266,6 +271,11 @@ const styles = StyleSheet.create({
     fontSize: typography.lg.fontSize,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  profileSub: {
+    fontSize: typography.sm.fontSize,
+    color: '#8E8E93',
+    marginTop: 1,
   },
   chatItemWrap: {
     position: 'relative',

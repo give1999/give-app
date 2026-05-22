@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "Give",
-    "slug": "give",
+    "name": "Star",
+    "slug": "star",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "give",
-    "userInterfaceStyle": "automatic",
+    "scheme": "star",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "package": "com.give.agent",
+      "package": "com.star.agent",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -29,16 +29,23 @@
     },
     "plugins": [
       "expo-router",
+      "expo-dev-client",
       [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#000000",
           "dark": {
             "backgroundColor": "#000000"
           }
+        }
+      ],
+      [
+        "expo-system-ui",
+        {
+          "backgroundColor": "#000000"
         }
       ]
     ],

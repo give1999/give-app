@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_PREFIX = 'give:';
+const STORAGE_PREFIX = 'star:';
 
 export const storage = {
   async get<T>(key: string): Promise<T | null> {

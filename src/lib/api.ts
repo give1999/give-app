@@ -1,4 +1,4 @@
-import type { ProviderSettings } from '@/src/types';
+import type { ProviderSettings, ToolDefinition, ToolCall } from '@/src/types';
 import type { ChatContentPart } from './contentPartBuilders';
 
 export interface ModelInfo {
@@ -54,8 +54,18 @@ export async function fetchModels(
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string | ChatContentPart[];
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string | ChatContentPart[] | null;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  tool_call_id?: string;
+  name?: string;
 }
 
 export function streamChatCompletion(
@@ -63,17 +73,60 @@ export function streamChatCompletion(
   messages: ChatMessage[],
   onToken: (token: string) => void,
   onError: (error: string) => void,
-  onDone: () => void,
+  onDone: (finishReason?: string) => void,
   onModelInfo?: (info: { model: string; usage?: unknown }) => void,
-  onReasoning?: (reasoning: string) => void
+  onReasoning?: (reasoning: string) => void,
+  onToolCall?: (toolCall: ToolCall) => void,
+  tools?: ToolDefinition[]
 ): { abort: () => void } {
-  const { apiKey, baseUrl, model } = config;
+  const { apiKey, baseUrl, model, systemPrompt, customSystemPrompt, instructionsEnabled, instructions } = config;
   const url = `${normalizeUrl(baseUrl)}/chat/completions`;
+
+  function buildSystemContent(): string | null {
+    const parts: string[] = [];
+    
+    if (systemPrompt) {
+      parts.push(`=== БАЗОВАЯ ИНСТРУКЦИЯ (приоритет высший) ===\n${systemPrompt}`);
+    }
+    
+    if (customSystemPrompt?.trim()) {
+      parts.push(`=== ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ===\n${customSystemPrompt.trim()}`);
+    }
+    
+    if (instructionsEnabled && instructions?.length > 0) {
+      const active = instructions.filter(i => i.enabled).map(i => i.text).join('\n\n');
+      if (active) {
+        parts.push(`--- АКТИВНЫЕ ИНСТРУКЦИИ ---\n${active}`);
+      }
+    }
+    
+    return parts.length > 0 ? parts.join('\n\n') : null;
+  }
+
+  const systemContent = buildSystemContent();
+  const allMessages = systemContent 
+    ? [{ role: 'system', content: systemContent }, ...messages]
+    : messages;
 
   const xhr = new XMLHttpRequest();
   let buffer = '';
   let lineBuffer = '';
   let finished = false;
+  let lastFinishReason: string | undefined;
+  // Аккумулятор для инкрементальных tool_calls
+  let toolCallAccumulator: Record<number, ToolCall> = {};
+  // Idle timeout — если сервер перестал отправлять данные на 60 сек, прерываем
+  let lastActivity = Date.now();
+  const IDLE_TIMEOUT_MS = 60_000;
+  const idleCheckInterval = setInterval(() => {
+    if (finished) { clearInterval(idleCheckInterval); return; }
+    if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
+      clearInterval(idleCheckInterval);
+      finished = true;
+      xhr.abort();
+      onError('Таймаут: сервер перестал отвечать (60 сек без данных)');
+    }
+  }, 10_000);
 
   xhr.open('POST', url, true);
   xhr.setRequestHeader('Content-Type', 'application/json');
@@ -82,6 +135,7 @@ export function streamChatCompletion(
 
   xhr.onprogress = () => {
     if (finished) return;
+    lastActivity = Date.now();
     const newData = xhr.responseText.substring(buffer.length);
     buffer = xhr.responseText;
 
@@ -96,7 +150,7 @@ export function streamChatCompletion(
       const data = trimmed.slice(5).trim();
       if (data === '[DONE]') {
         finished = true;
-        onDone();
+        onDone(lastFinishReason);
         return;
       }
 
@@ -111,6 +165,40 @@ export function streamChatCompletion(
         if (reasoning && onReasoning) {
           onReasoning(reasoning);
         }
+
+        // Парсинг tool_calls (инкрементальный)
+        const deltaToolCalls = choice?.delta?.tool_calls;
+        if (deltaToolCalls && onToolCall) {
+          for (const tc of deltaToolCalls) {
+            const index = tc.index ?? 0;
+            if (!toolCallAccumulator[index]) {
+              toolCallAccumulator[index] = {
+                id: '',
+                type: 'function' as const,
+                function: { name: '', arguments: '' },
+              };
+            }
+            const acc = toolCallAccumulator[index];
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.function.name += tc.function.name;
+            if (tc.function?.arguments) acc.function.arguments += tc.function.arguments;
+          }
+        }
+
+        // При finish_reason — отдаём накопленные tool_calls
+        const finishReason = choice?.finish_reason;
+        if (finishReason) {
+          lastFinishReason = finishReason;
+          if ((finishReason === 'tool_calls' || finishReason === 'stop') && onToolCall) {
+            for (const tc of Object.values(toolCallAccumulator)) {
+              if (tc.id) {
+                onToolCall(tc);
+              }
+            }
+            toolCallAccumulator = {};
+          }
+        }
+
         if (parsed.model && onModelInfo) {
           onModelInfo({ model: parsed.model, usage: parsed.usage });
         }
@@ -121,10 +209,11 @@ export function streamChatCompletion(
   };
 
   xhr.onload = () => {
+    clearInterval(idleCheckInterval);
     if (finished) return;
     if (xhr.status >= 200 && xhr.status < 300) {
       finished = true;
-      onDone();
+      onDone(lastFinishReason);
     } else {
       finished = true;
       onError(`HTTP ${xhr.status}: ${xhr.responseText || xhr.statusText}`);
@@ -132,24 +221,40 @@ export function streamChatCompletion(
   };
 
   xhr.onerror = () => {
+    clearInterval(idleCheckInterval);
     if (finished) return;
     finished = true;
     onError('Ошибка соединения');
   };
 
   xhr.ontimeout = () => {
+    clearInterval(idleCheckInterval);
     if (finished) return;
     finished = true;
     onError('Таймаут соединения');
   };
 
-  const body = JSON.stringify({
+  const bodyObj: Record<string, unknown> = {
     model: model || 'gpt-4o',
-    messages,
+    messages: allMessages,
     stream: true,
     temperature: 0.7,
     max_tokens: 4096,
-  });
+  };
+
+  if (tools && tools.length > 0) {
+    bodyObj.tools = tools;
+    bodyObj.tool_choice = 'auto';
+    console.log(`[API] 🔧 Tools attached: ${tools.length} tool(s) — ${tools.map((t: any) => t.function?.name).join(', ')}`);
+  } else {
+    console.log(`[API] ⚠️  No tools attached (tools array empty or undefined)`);
+  }
+
+  const body = JSON.stringify(bodyObj);
+  console.log('[API] Request body messages:', JSON.stringify(JSON.parse(body).messages).slice(0, 200));
+  if (tools && tools.length > 0) {
+    console.log('[API] Request body tools:', JSON.stringify(bodyObj.tools).slice(0, 300));
+  }
 
 
 
@@ -157,6 +262,7 @@ export function streamChatCompletion(
 
   return {
     abort: () => {
+      clearInterval(idleCheckInterval);
       finished = true;
       xhr.abort();
     },

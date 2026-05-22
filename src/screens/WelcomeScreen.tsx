@@ -19,7 +19,7 @@ export default function WelcomeScreen() {
           </View>
         </View>
 
-        <Text style={styles.title}>Добро пожаловать в Give</Text>
+        <Text style={styles.title}>Добро пожаловать в Star</Text>
         <Text style={styles.desc}>
           Ваш персональный AI-ассистент, готовый помочь в любое время
         </Text>

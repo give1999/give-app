@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 // ============================================
-// Give App Design Tokens
+// Star App Design Tokens
 // Based on Chat AI Mobile App UI Kit (Figma)
 // ============================================
 
@@ -140,3 +140,60 @@ export const sizes = {
   avatarMd: 48,
   phone: { width: 375, height: 812 },
 } as const;
+
+// ============================================
+// Tool Call Colors
+// ============================================
+export const toolCallColors = {
+  bg: '#1C1C1E',
+  border: '#38383A',
+  headerBg: '#2C2C2E',
+  iconRunning: '#FFD60A',
+  iconDone: '#30D158',
+  iconError: '#FF453A',
+  iconPending: '#8E8E93',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#8E8E93',
+  codeBg: '#000000',
+  codeText: '#30D158',
+} as const;
+
+// ============================================
+// Daemon Task Colors
+// ============================================
+export const daemonTaskColors = {
+  bg: '#1C1C1E',
+  border: '#38383A',
+  progressBg: '#3A3A3C',
+  progressFill: '#007AFF',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#8E8E93',
+  buttonDanger: '#FF453A',
+} as const;
+
+// ============================================
+// File Export Colors
+// ============================================
+export const fileExportColors = {
+  bg: '#1C1C1E',
+  border: '#38383A',
+  iconBg: '#2C2C2E',
+  buttonPrimary: '#007AFF',
+  buttonSecondary: '#3A3A3C',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#8E8E93',
+} as const;
+
+// ============================================
+// Tool Category Icons (Ionicons names)
+// ============================================
+export const toolCategoryIcons: Record<string, string> = {
+  sandbox: 'terminal-outline',
+  web: 'search-outline',
+  code: 'code-slash-outline',
+  data: 'calculator-outline',
+  text: 'text-outline',
+  files: 'document-outline',
+  docs: 'grid-outline',
+  daemon: 'time-outline',
+};

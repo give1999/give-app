@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { typography, spacing, radius } from '../design/theme';
 import { useSettingsStore } from '@/src/stores/settingsStore';
 import { fetchModels } from '@/src/lib/api';
@@ -13,13 +14,14 @@ interface SettingsScreenProps {
 
 export default function SettingsScreen({ onClose }: SettingsScreenProps) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const apiKey = useSettingsStore((s) => s.apiKey);
   const baseUrl = useSettingsStore((s) => s.baseUrl);
-  const systemPrompt = useSettingsStore((s) => s.systemPrompt);
+  const customSystemPrompt = useSettingsStore((s) => s.customSystemPrompt);
   const setApiKey = useSettingsStore((s) => s.setApiKey);
   const setBaseUrl = useSettingsStore((s) => s.setBaseUrl);
-  const setSystemPrompt = useSettingsStore((s) => s.setSystemPrompt);
+  const setCustomSystemPrompt = useSettingsStore((s) => s.setCustomSystemPrompt);
   const setModelsStore = useSettingsStore((s) => s.setModels);
   const setModelCaps = useSettingsStore((s) => s.setModelCaps);
   const currentModel = useSettingsStore((s) => s.model);
@@ -112,17 +114,26 @@ export default function SettingsScreen({ onClose }: SettingsScreenProps) {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Системный промпт</Text>
+          <Text style={styles.label}>Мои инструкции</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="Ты — полезный ассистент..."
+            placeholder="Дополнительные инструкции для модели..."
             placeholderTextColor="#8E8E93"
             multiline
             numberOfLines={4}
-            value={systemPrompt}
-            onChangeText={setSystemPrompt}
+            value={customSystemPrompt}
+            onChangeText={setCustomSystemPrompt}
           />
         </View>
+
+        <Pressable
+          style={styles.linkBtn}
+          onPress={() => router.push('/system-prompt')}
+          android_ripple={{ color: 'rgba(255,255,255,0.1)' }}
+        >
+          <Text style={styles.linkText}>Системный промпт</Text>
+          <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
+        </Pressable>
 
         {error && (
           <Text style={styles.errorText}>{error}</Text>
@@ -213,5 +224,18 @@ const styles = StyleSheet.create({
   },
   saveBtnTextInactive: {
     color: '#8E8E93',
+  },
+  linkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1C1C1E',
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  linkText: {
+    fontSize: typography.base.fontSize,
+    color: '#FFFFFF',
   },
 });

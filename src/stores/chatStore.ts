@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, type StorageValue } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Conversation, Message } from '@/src/types';
+import type { Conversation, Message, ToolCallDisplay } from '@/src/types';
 import { genId } from '@/src/lib/id';
 
 interface ChatState {
@@ -14,8 +14,38 @@ interface ChatState {
   addMessage: (convId: string, message: Omit<Message, 'id' | 'timestamp'>) => Message;
   updateMessageContent: (convId: string, msgId: string, content: string) => void;
   updateMessageReasoning: (convId: string, msgId: string, reasoning: string) => void;
+  updateMessageToolCalls: (convId: string, msgId: string, displays: ToolCallDisplay[]) => void;
+  removeMessage: (convId: string, msgId: string) => void;
   updateConversationTitle: (id: string, title: string) => void;
   getActiveConversation: () => Conversation | null;
+}
+
+function createDebouncedStorage<S>(
+  getStorage: () => typeof AsyncStorage,
+  debounceMs: number = 300
+) {
+  const baseStorage = createJSONStorage(getStorage);
+  let writeTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingName: string | null = null;
+  let pendingValue: string | null = null;
+
+  return {
+    getItem: baseStorage.getItem!,
+    setItem: (name: string, value: StorageValue<S>) => {
+      pendingName = name;
+      pendingValue = JSON.stringify(value);
+      if (writeTimer) clearTimeout(writeTimer);
+      writeTimer = setTimeout(() => {
+        if (pendingName !== null && pendingValue !== null) {
+          getStorage().setItem(pendingName, pendingValue);
+          pendingName = null;
+          pendingValue = null;
+        }
+        writeTimer = null;
+      }, debounceMs);
+    },
+    removeItem: baseStorage.removeItem!,
+  };
 }
 
 export const useChatStore = create<ChatState>()(
@@ -114,6 +144,36 @@ export const useChatStore = create<ChatState>()(
         }));
       },
 
+      updateMessageToolCalls: (convId, msgId, displays) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === msgId ? { ...m, toolCallDisplays: displays } : m
+                  ),
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        }));
+      },
+
+      removeMessage: (convId, msgId) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: c.messages.filter((m) => m.id !== msgId),
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        }));
+      },
+
           updateConversationTitle: (id: string, title: string) => {
         set((state) => ({
           conversations: state.conversations.map((c) =>
@@ -128,8 +188,8 @@ export const useChatStore = create<ChatState>()(
       },
     }),
     {
-      name: 'give-chats',
-      storage: createJSONStorage(() => AsyncStorage),
+      name: 'star-chats',
+      storage: createDebouncedStorage(() => AsyncStorage, 300),
     }
   )
 );

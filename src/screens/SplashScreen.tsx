@@ -18,7 +18,7 @@ export default function SplashScreen() {
       <View style={styles.logoBox}>
         <Text style={styles.logo}>G</Text>
       </View>
-      <Text style={styles.title}>Give</Text>
+      <Text style={styles.title}>Star</Text>
       <Text style={styles.subtitle}>AI Agent Environment</Text>
     </View>
   );

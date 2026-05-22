@@ -3,14 +3,15 @@ import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing } from '../design/theme';
 import { useTheme } from '@/hooks/use-theme';
-import ModelDropdown from './ModelDropdown';
+import ModelDropdown, { ModelDropdownHandle } from './ModelDropdown';
 
 interface HeaderProps {
   onMenuPress?: () => void;
   onNewChat?: () => void;
+  modelDropdownRef?: React.Ref<ModelDropdownHandle>;
 }
 
-export default function Header({ onMenuPress, onNewChat }: HeaderProps) {
+export default function Header({ onMenuPress, onNewChat, modelDropdownRef }: HeaderProps) {
   const t = useTheme();
 
   return (
@@ -24,7 +25,7 @@ export default function Header({ onMenuPress, onNewChat }: HeaderProps) {
           <View style={styles.btn} />
         )}
 
-        <ModelDropdown />
+        <ModelDropdown ref={modelDropdownRef} />
 
         {onNewChat ? (
           <TouchableOpacity style={styles.btn} onPress={onNewChat} activeOpacity={0.6}>
