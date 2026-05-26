@@ -158,18 +158,22 @@ function MessageBubbleInner({ id, text, reasoning, isUser, isAI, attachments, is
                 // 1. Agent iteration events
                 agentIterations?.forEach((iter, iterIdx) => {
                   const isLastIter = iterIdx === (agentIterations?.length ?? 0) - 1;
+                  
+                  // 1. Сначала выводим размышления (если есть)
                   if (iter.reasoning) {
                     events.push({ id: `${iter.id}-reasoning`, type: 'reasoning', data: iter.reasoning, isLast: isLastIter });
                   }
-                  // Сначала пушим инструменты текущей итерации
+                  
+                  // 2. Затем выводим текст комментария ("Шаг X: Использую...")
+                  if (iter.content) {
+                    events.push({ id: `${iter.id}-content`, type: 'content', data: iter.content, isComment: true, isLast: isLastIter });
+                  }
+                  
+                  // 3. В самом конце выводим карточки запущенных на этом шаге инструментов
                   if (iter.toolCallDisplays) {
                     iter.toolCallDisplays.forEach((tc) => {
                       events.push({ id: `${iter.id}-tool-${tc.id}`, type: 'tool', data: tc, isLast: isLastIter });
                     });
-                  }
-                  // Затем пушим текст текущей итерации
-                  if (iter.content) {
-                    events.push({ id: `${iter.id}-content`, type: 'content', data: iter.content, isComment: true, isLast: isLastIter });
                   }
                 });
 
