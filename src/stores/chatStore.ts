@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, type StorageValue } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Conversation, Message, ToolCallDisplay } from '@/src/types';
+import type { Conversation, Message, ToolCallDisplay, AgentIteration } from '@/src/types';
 import { genId } from '@/src/lib/id';
 
 interface ChatState {
@@ -15,6 +15,7 @@ interface ChatState {
   updateMessageContent: (convId: string, msgId: string, content: string) => void;
   updateMessageReasoning: (convId: string, msgId: string, reasoning: string) => void;
   updateMessageToolCalls: (convId: string, msgId: string, displays: ToolCallDisplay[]) => void;
+  addAgentIteration: (convId: string, msgId: string, iteration: AgentIteration) => void;
   removeMessage: (convId: string, msgId: string) => void;
   updateConversationTitle: (id: string, title: string) => void;
   getActiveConversation: () => Conversation | null;
@@ -30,7 +31,7 @@ function createDebouncedStorage<S>(
   let pendingValue: string | null = null;
 
   return {
-    getItem: baseStorage.getItem!,
+    getItem: baseStorage!.getItem!,
     setItem: (name: string, value: StorageValue<S>) => {
       pendingName = name;
       pendingValue = JSON.stringify(value);
@@ -44,7 +45,7 @@ function createDebouncedStorage<S>(
         writeTimer = null;
       }, debounceMs);
     },
-    removeItem: baseStorage.removeItem!,
+    removeItem: baseStorage!.removeItem!,
   };
 }
 
@@ -153,6 +154,47 @@ export const useChatStore = create<ChatState>()(
                   messages: c.messages.map((m) =>
                     m.id === msgId ? { ...m, toolCallDisplays: displays } : m
                   ),
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        }));
+      },
+
+      addAgentIteration: (convId, msgId, iteration) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) => {
+                    if (m.id !== msgId) return m;
+                    const existing = m.agentIterations || [];
+                    const existingIndex = existing.findIndex((i) => i.id === iteration.id);
+                    let iterations;
+                    if (existingIndex >= 0) {
+                      // Обновляем существующую итерацию
+                      const existingIter = existing[existingIndex];
+                      iterations = [...existing];
+                      iterations[existingIndex] = {
+                        ...existingIter,
+                        content: iteration.content ?? existingIter.content,
+                        reasoning: iteration.reasoning ?? existingIter.reasoning,
+                        // Сохраняем toolCallDisplays: новые приоритетнее, но не затираем существующие undefined
+                        toolCallDisplays: iteration.toolCallDisplays ?? existingIter.toolCallDisplays,
+                      };
+                    } else {
+                      iterations = [...existing, iteration];
+                    }
+                    return {
+                      ...m,
+                      agentIterations: iterations,
+                      // НЕ перезаписываем m.content/m.reasoning — они хранят финальный ответ,
+                      // а контент итераций живёт только в agentIterations
+                      // Очищаем legacy toolCallDisplays — они теперь в итерации
+                      toolCallDisplays: undefined,
+                    };
+                  }),
                   updatedAt: Date.now(),
                 }
               : c

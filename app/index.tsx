@@ -23,7 +23,7 @@ import { buildContent } from '@/src/lib/contentPartBuilders';
 import { canSendAttachments } from '@/src/lib/modelCapabilities';
 import { loadSystemPromptFromFile } from '@/src/lib/systemPrompt';
 import { getAllToolDefinitions, executeTool, getToolCategory } from '@/src/lib/tools';
-import type { ToolCall, Conversation, Message } from '@/src/types';
+import type { ToolCall, Conversation, Message, AgentIteration } from '@/src/types';
 import type { Attachment, ToolCallDisplay } from '@/src/types';
 
 interface DisplayMessage {
@@ -34,9 +34,22 @@ interface DisplayMessage {
   isAI?: boolean;
   attachments?: Attachment[];
   toolCallDisplays?: ToolCallDisplay[];
+  agentIterations?: AgentIteration[];
+  streamingReasoning?: string;
 }
 
-function toDisplayMessages(messages: { id: string; role: string; content: string; reasoning?: string; attachments?: Attachment[]; toolCallDisplays?: ToolCallDisplay[] }[]): DisplayMessage[] {
+function toolCallDisplaysEqual(a?: ToolCallDisplay[] | null, b?: ToolCallDisplay[] | null): boolean {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].status !== b[i].status || a[i].result !== b[i].result || a[i].error !== b[i].error) return false;
+  }
+  return true;
+}
+
+function toDisplayMessages(messages: { id: string; role: string; content: string; reasoning?: string; attachments?: Attachment[]; toolCallDisplays?: ToolCallDisplay[]; agentIterations?: AgentIteration[] }[]): DisplayMessage[] {
   return messages
     .filter((m) => m.role !== 'system')
     .map((m) => ({
@@ -47,6 +60,7 @@ function toDisplayMessages(messages: { id: string; role: string; content: string
       isUser: m.role === 'user',
       isAI: m.role === 'assistant',
       toolCallDisplays: m.toolCallDisplays,
+      agentIterations: m.agentIterations,
     }));
 }
 
@@ -128,6 +142,7 @@ export default function ChatScreen() {
   const updateMessageContent = useChatStore((s) => s.updateMessageContent);
   const updateMessageReasoning = useChatStore((s) => s.updateMessageReasoning);
   const updateMessageToolCalls = useChatStore((s) => s.updateMessageToolCalls);
+  const addAgentIteration = useChatStore((s) => s.addAgentIteration);
   const removeMessage = useChatStore((s) => s.removeMessage);
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle);
   const systemPrompt = useSettingsStore((s) => s.systemPrompt);
@@ -157,9 +172,12 @@ export default function ChatScreen() {
       const displayText = m.id === streamingMsgId ? streamingContent : m.content;
       const displayReasoning = m.id === streamingMsgId ? streamingReasoning : m.reasoning;
 
-      if (prevMsg && prevMsg.id === m.id && prevMsg.text === displayText && prevMsg.reasoning === displayReasoning) {
+      if (prevMsg && prevMsg.id === m.id && prevMsg.text === displayText && prevMsg.reasoning === displayReasoning && prevMsg.streamingReasoning === (m.id === streamingMsgId ? streamingReasoning : undefined) && toolCallDisplaysEqual(prevMsg.toolCallDisplays, m.toolCallDisplays) && prevMsg.agentIterations === m.agentIterations) {
         result.push(prevMsg);
       } else {
+        if (m.role === 'assistant' && (m.toolCallDisplays || m.agentIterations)) {
+          console.log(`[toDisplayMessages] 🎨 Rebuilding msg=${m.id} toolCallDisplays=${m.toolCallDisplays?.length ?? 0} agentIterations=${m.agentIterations?.length ?? 0} textLen=${displayText.length}`);
+        }
         result.push({
           id: m.id,
           text: displayText,
@@ -168,6 +186,8 @@ export default function ChatScreen() {
           isUser: m.role === 'user',
           isAI: m.role === 'assistant',
           toolCallDisplays: m.toolCallDisplays,
+          agentIterations: m.agentIterations,
+          streamingReasoning: m.id === streamingMsgId ? streamingReasoning : undefined,
         });
       }
     }
@@ -185,6 +205,13 @@ export default function ChatScreen() {
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
     }
   }, [activeConversationId]);
+
+  // Автопрокрутка при изменении сообщений во время генерации
+  useEffect(() => {
+    if (isLoading && autoFollowRef.current) {
+      scheduleScrollToEnd();
+    }
+  }, [messages, isLoading]);
 
   const handleScrollBtn = useCallback(() => {
     if (isLoading) {
@@ -276,7 +303,7 @@ export default function ChatScreen() {
       }
     };
 
-    const config = { baseUrl, apiKey, model, systemPrompt, customSystemPrompt, instructionsEnabled, instructions };
+    const config = { baseUrl, apiKey, model, systemPrompt, customSystemPrompt, instructionsEnabled, instructions, modelConfigs: [] };
 
     try {
       const { parts } = await buildContent(text, sentAttachments);
@@ -370,17 +397,31 @@ export default function ChatScreen() {
         });
 
         // Обновляем сообщение ассистента — добавляем toolCallDisplays
+        console.log(`[AgentLoop] 🎨 Setting toolCallDisplays on msg=${aiMsg.id} count=${initialDisplays.length} names=${initialDisplays.map(d => d.name).join(',')}`);
         updateMessageToolCalls(convId!, aiMsg.id, initialDisplays);
 
-        // Хелпер: обновить один элемент в массиве, читая текущее состояние из стора
-        const updateSingleDisplay = (index: number, patch: Partial<ToolCallDisplay>) => {
-          const conv = useChatStore.getState().conversations.find((c: Conversation) => c.id === convId);
-          const msg = conv?.messages.find((m: Message) => m.id === aiMsg.id);
-          const currentDisplays = msg?.toolCallDisplays ?? initialDisplays;
-          const updated = currentDisplays.map((d: ToolCallDisplay, i: number) =>
-            i === index ? { ...d, ...patch } : d
-          );
-          updateMessageToolCalls(convId!, aiMsg.id, updated);
+        // Хелпер: обновить один элемент в массиве по id тула
+        const updateSingleDisplay = (toolCallId: string, patch: Partial<ToolCallDisplay>) => {
+          useChatStore.setState((state) => ({
+            conversations: state.conversations.map((c) =>
+              c.id === convId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === aiMsg.id
+                        ? {
+                            ...m,
+                            toolCallDisplays: (m.toolCallDisplays ?? initialDisplays).map(
+                              (d: ToolCallDisplay) => d.id === toolCallId ? { ...d, ...patch } : d
+                            ),
+                          }
+                        : m
+                    ),
+                    updatedAt: Date.now(),
+                  }
+                : c
+            ),
+          }));
         };
 
         // Выполняем tool calls параллельно с обновлением статусов
@@ -393,15 +434,15 @@ export default function ChatScreen() {
             args = {};
           }
 
-          // Обновляем статус на 'running'
-          updateSingleDisplay(index, { status: 'running' });
+          // Обновляем статус на 'running' — ищем по id, а не по индексу
+          updateSingleDisplay(tc.id, { status: 'running' });
 
           console.log(`[AgentLoop] ➡️  EXECUTING tool="${tc.function.name}" args=${JSON.stringify(args).slice(0, 300)}`);
           const result = await executeTool(tc.function.name, args);
           console.log(`[AgentLoop] ✅ EXECUTED tool="${tc.function.name}" success=${result.success} resultPreview="${result.result?.slice(0, 200)}" error="${result.error || 'none'}"`);
 
-          // Обновляем статус на 'completed' или 'error'
-          updateSingleDisplay(index, {
+          // Обновляем статус на 'completed' или 'error' — ищем по id
+          updateSingleDisplay(tc.id, {
             status: result.success ? 'completed' : 'error',
             result: result.result,
             error: result.error,
@@ -421,7 +462,13 @@ export default function ChatScreen() {
         // Коммитим текущий контент перед следующим запросом
         flushContent();
         flushReasoning();
-        useStreamingStore.getState().commitToStore();
+        console.log(`[AgentLoop] 💾 commitContentOnly — streamingContent.length=${useStreamingStore.getState().streamingContent.length} toolCallDisplays still on msg? checking...`);
+        useStreamingStore.getState().commitContentOnly();
+        useStreamingStore.getState().nextIteration();
+        // Проверяем, что toolCallDisplays не затёрлись после commitContentOnly
+        const convAfterCommit = useChatStore.getState().conversations.find((c: Conversation) => c.id === convId);
+        const msgAfterCommit = convAfterCommit?.messages.find((m: Message) => m.id === aiMsg.id);
+        console.log(`[AgentLoop] 💾 After commitContentOnly: msg.content.length=${msgAfterCommit?.content?.length} toolCallDisplays=${msgAfterCommit?.toolCallDisplays?.length ?? 'undefined'}`);
 
         // Добавляем ассистентское сообщение с tool_calls в историю
         currentMessages.push({
@@ -469,7 +516,7 @@ export default function ChatScreen() {
             .map((m) => ({ role: m.role, content: m.content }));
           const availableModels = useSettingsStore.getState().models;
           const result = await generateChatTitle(
-            { baseUrl, apiKey, model, systemPrompt },
+            { baseUrl, apiKey, model, systemPrompt, customSystemPrompt, instructionsEnabled, instructions, modelConfigs: [] },
             chatHistory,
             availableModels
           );
@@ -574,7 +621,7 @@ export default function ChatScreen() {
       }
     };
 
-    const config = { baseUrl, apiKey, model, systemPrompt, customSystemPrompt, instructionsEnabled, instructions };
+    const config = { baseUrl, apiKey, model, systemPrompt, customSystemPrompt, instructionsEnabled, instructions, modelConfigs: [] };
 
     const runRegenerate = async () => {
       try {
@@ -620,17 +667,67 @@ export default function ChatScreen() {
 
           if (toolCalls.length === 0 || abortAgentRef.current.aborted) break;
 
-          const execPromises = toolCalls.map(async (tc) => {
+          // Создаём ToolCallDisplay[] со статусом 'pending' для UI
+          const initialDisplays: ToolCallDisplay[] = toolCalls.map((tc) => {
             let args: Record<string, unknown>;
             try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+            return {
+              id: tc.id,
+              name: tc.function.name,
+              args,
+              status: 'pending' as const,
+              startedAt: Date.now(),
+              category: getToolCategory(tc.function.name),
+            };
+          });
+
+          updateMessageToolCalls(convId!, aiMsg.id, initialDisplays);
+
+          const updateSingleDisplay = (toolCallId: string, patch: Partial<ToolCallDisplay>) => {
+            useChatStore.setState((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === convId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === aiMsg.id
+                          ? {
+                              ...m,
+                              toolCallDisplays: (m.toolCallDisplays ?? initialDisplays).map(
+                                (d: ToolCallDisplay) => d.id === toolCallId ? { ...d, ...patch } : d
+                              ),
+                            }
+                          : m
+                      ),
+                      updatedAt: Date.now(),
+                    }
+                  : c
+              ),
+            }));
+          };
+
+          const execPromises = toolCalls.map(async (tc, index) => {
+            let args: Record<string, unknown>;
+            try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+
+            updateSingleDisplay(tc.id, { status: 'running' });
             const result = await executeTool(tc.function.name, args);
+            updateSingleDisplay(tc.id, {
+              status: result.success ? 'completed' : 'error',
+              result: result.result,
+              error: result.error,
+              finishedAt: Date.now(),
+              category: result.category,
+            });
+
             return { toolCallId: tc.id, content: result.success ? result.result : `Error: ${result.error}` };
           });
           const results = await Promise.all(execPromises);
 
           flushContent();
           flushReasoning();
-          useStreamingStore.getState().commitToStore();
+          useStreamingStore.getState().commitContentOnly();
+          useStreamingStore.getState().nextIteration();
 
           currentMessages.push({
             role: 'assistant',

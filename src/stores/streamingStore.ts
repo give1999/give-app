@@ -7,11 +7,15 @@ interface StreamingState {
   streamingReasoning: string;
   isStreaming: boolean;
   isCancelled: boolean;
+  currentIterationIndex: number;
+  iterationStartTime: number;
 
   startStreaming: (convId: string, msgId: string) => void;
   resumeStreaming: (convId: string, msgId: string) => void;
+  nextIteration: () => void;
   appendContent: (chunk: string) => void;
   appendReasoning: (chunk: string) => void;
+  commitContentOnly: () => void;
   commitToStore: () => void;
   cancelStreaming: () => void;
 }
@@ -23,6 +27,8 @@ export const useStreamingStore = create<StreamingState>()((set, get) => ({
   streamingReasoning: '',
   isStreaming: false,
   isCancelled: false,
+  currentIterationIndex: 0,
+  iterationStartTime: 0,
 
   startStreaming: (convId, msgId) => set({
     streamingConversationId: convId,
@@ -31,15 +37,23 @@ export const useStreamingStore = create<StreamingState>()((set, get) => ({
     streamingReasoning: '',
     isStreaming: true,
     isCancelled: false,
+    currentIterationIndex: 0,
+    iterationStartTime: Date.now(),
   }),
 
   resumeStreaming: (convId, msgId) => set({
     streamingConversationId: convId,
     streamingMessageId: msgId,
-    // НЕ сбрасываем streamingContent — продолжаем в то же сообщение
     isStreaming: true,
     isCancelled: false,
   }),
+
+  nextIteration: () => set((s) => ({
+    currentIterationIndex: s.currentIterationIndex + 1,
+    streamingContent: '',
+    streamingReasoning: '',
+    iterationStartTime: Date.now(),
+  })),
 
   appendContent: (chunk) => set((s) => ({
     streamingContent: s.streamingContent + chunk,
@@ -48,6 +62,31 @@ export const useStreamingStore = create<StreamingState>()((set, get) => ({
   appendReasoning: (chunk) => set((s) => ({
     streamingReasoning: s.streamingReasoning + chunk,
   })),
+
+  commitContentOnly: () => {
+    const state = get();
+    const { streamingConversationId, streamingMessageId, streamingContent, streamingReasoning, currentIterationIndex } = state;
+    if (streamingConversationId && streamingMessageId) {
+      const { useChatStore } = require('./chatStore');
+      // Читаем toolCallDisplays из текущего сообщения, чтобы перенести в итерацию
+      const conv = useChatStore.getState().conversations.find((c: any) => c.id === streamingConversationId);
+      const msg = conv?.messages.find((m: any) => m.id === streamingMessageId);
+      const toolCallDisplays = msg?.toolCallDisplays ? [...msg.toolCallDisplays] : undefined;
+      const iteration = {
+        id: `${streamingMessageId}-iter-${currentIterationIndex}`,
+        index: currentIterationIndex,
+        reasoning: streamingReasoning || undefined,
+        content: streamingContent,
+        toolCallDisplays,
+        timestamp: Date.now(),
+      };
+      useChatStore.getState().addAgentIteration(
+        streamingConversationId, streamingMessageId, iteration
+      );
+    }
+    // НЕ сбрасываем streamingContent, streamingReasoning, streamingMessageId, isStreaming
+    // Контент продолжает накапливаться для следующей итерации
+  },
 
   commitToStore: () => {
     const state = get();
@@ -60,16 +99,20 @@ export const useStreamingStore = create<StreamingState>()((set, get) => ({
         streamingReasoning: '',
         isStreaming: false,
         isCancelled: false,
+        currentIterationIndex: 0,
+        iterationStartTime: 0,
       });
       return;
     }
     const { streamingConversationId, streamingMessageId, streamingContent, streamingReasoning } = state;
     if (streamingConversationId && streamingMessageId) {
-      // Import will be used at call site — we use useChatStore.getState() there
       const { useChatStore } = require('./chatStore');
-      useChatStore.getState().updateMessageContent(
-        streamingConversationId, streamingMessageId, streamingContent
-      );
+      // Финальный ответ сохраняем в message.content, НЕ в agentIterations
+      if (streamingContent) {
+        useChatStore.getState().updateMessageContent(
+          streamingConversationId, streamingMessageId, streamingContent
+        );
+      }
       if (streamingReasoning) {
         useChatStore.getState().updateMessageReasoning(
           streamingConversationId, streamingMessageId, streamingReasoning
@@ -82,6 +125,7 @@ export const useStreamingStore = create<StreamingState>()((set, get) => ({
       streamingContent: '',
       streamingReasoning: '',
       isStreaming: false,
+      currentIterationIndex: 0,
     });
   },
 

@@ -29,5 +29,5 @@ import './daemon/submit';
 import './daemon/status';
 import './daemon/cancel';
 
-export { getAllToolDefinitions, executeTool, getTool, getAllTools, getToolsByCategory } from './registry';
+export { getAllToolDefinitions, executeTool, getTool, getAllTools, getToolsByCategory, getToolCategory } from './registry';
 export type { Tool } from './registry';

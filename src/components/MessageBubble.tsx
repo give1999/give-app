@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, Easing } from 'react-native-reanimated';
 import Markdown from 'react-native-markdown-display';
 import { spacing, radius, typography } from '../design/theme';
-import type { Attachment, ToolCallDisplay } from '@/src/types';
+import type { Attachment, ToolCallDisplay, AgentIteration } from '@/src/types';
 import FullscreenImageViewer from './FullscreenImageViewer';
 import ReasoningTicker from './ReasoningTicker';
 import ToolCallBubble from './ToolCallBubble';
@@ -18,11 +18,13 @@ interface MessageBubbleProps {
   attachments?: Attachment[];
   isGenerating?: boolean;
   toolCallDisplays?: ToolCallDisplay[];
+  agentIterations?: AgentIteration[];
+  streamingReasoning?: string;
   onRegenerate?: (id: string) => void;
   onEdit?: (id: string) => void;
 }
 
-function MessageBubbleInner({ id, text, reasoning, isUser, isAI, attachments, isGenerating, toolCallDisplays, onRegenerate, onEdit }: MessageBubbleProps) {
+function MessageBubbleInner({ id, text, reasoning, isUser, isAI, attachments, isGenerating, toolCallDisplays, agentIterations, streamingReasoning, onRegenerate, onEdit }: MessageBubbleProps) {
   const [showReasoning, setShowReasoning] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -142,56 +144,121 @@ function MessageBubbleInner({ id, text, reasoning, isUser, isAI, attachments, is
         </Pressable>
       ) : (
         <>
-          {reasoning ? (
-            <View style={styles.reasoningWrapper}>
-              {showReasoning ? (
-                <>
-                  <Pressable
-                    style={styles.reasoningToggle}
-                    onPress={() => setShowReasoning(false)}
-                    android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
-                  >
-                    <Text style={styles.reasoningToggleText}>Размышление</Text>
-                    <Ionicons name="chevron-down" size={16} color="#8E8E93" />
-                  </Pressable>
-                  <View style={styles.reasoningBlock}>
-                    <Markdown style={reasoningMarkdownStyles}>{reasoning}</Markdown>
+          {isAI ? (
+            <View style={styles.timelineContainer}>
+              {(() => {
+                const events: Array<{
+                  id: string;
+                  type: 'reasoning' | 'tool' | 'content' | 'final';
+                  data: any;
+                  isComment?: boolean;
+                  isLast: boolean;
+                }> = [];
+
+                // 1. Agent iteration events
+                agentIterations?.forEach((iter, iterIdx) => {
+                  const isLastIter = iterIdx === (agentIterations?.length ?? 0) - 1;
+                  if (iter.reasoning) {
+                    events.push({ id: `${iter.id}-reasoning`, type: 'reasoning', data: iter.reasoning, isLast: isLastIter });
+                  }
+                  // Сначала пушим инструменты текущей итерации
+                  if (iter.toolCallDisplays) {
+                    iter.toolCallDisplays.forEach((tc) => {
+                      events.push({ id: `${iter.id}-tool-${tc.id}`, type: 'tool', data: tc, isLast: isLastIter });
+                    });
+                  }
+                  // Затем пушим текст текущей итерации
+                  if (iter.content) {
+                    events.push({ id: `${iter.id}-content`, type: 'content', data: iter.content, isComment: true, isLast: isLastIter });
+                  }
+                });
+
+                // 2. Legacy reasoning (only if no agentIterations)
+                if (!agentIterations?.length && reasoning) {
+                  events.push({ id: `${id}-reasoning`, type: 'reasoning', data: reasoning, isLast: false });
+                }
+
+                // 3. Legacy tool calls (only if no agentIterations)
+                if (!agentIterations?.length && toolCallDisplays?.length) {
+                  toolCallDisplays.forEach((tc) => {
+                    events.push({ id: `${id}-tool-${tc.id}`, type: 'tool', data: tc, isLast: false });
+                  });
+                }
+
+                // 4. Streaming reasoning
+                if (streamingReasoning) {
+                  events.push({ id: 'streaming-reasoning', type: 'reasoning', data: streamingReasoning, isLast: true });
+                }
+
+                // 5. Final answer text
+                if (text) {
+                  events.push({ id: `${id}-final`, type: 'final', data: text, isLast: true });
+                }
+
+                return events.map((evt, evtIdx) => (
+                  <View key={evt.id} style={styles.timelineItem}>
+                    <View style={styles.timelineLine}>
+                      <View style={[styles.timelineDot, evtIdx === events.length - 1 && isGenerating && styles.timelineDotActive]} />
+                      {evtIdx < events.length - 1 && <View style={styles.timelineConnector} />}
+                    </View>
+
+                    <View style={styles.timelineContent}>
+                      {evt.type === 'reasoning' && (
+                        <View style={styles.timelineStep}>
+                          {evt.id === 'streaming-reasoning' ? (
+                            <ReasoningTicker reasoning={evt.data} isGenerating={true} />
+                          ) : showReasoning ? (
+                            <>
+                              <Pressable
+                                style={styles.reasoningToggle}
+                                onPress={() => setShowReasoning(false)}
+                                android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+                              >
+                                <Text style={styles.reasoningToggleText}>Размышление</Text>
+                                <Ionicons name="chevron-down" size={16} color="#8E8E93" />
+                              </Pressable>
+                              <View style={styles.reasoningBlock}>
+                                <Markdown style={reasoningMarkdownStyles}>{evt.data.replace(/^\s*<think>\s*/i, '')}</Markdown>
+                              </View>
+                            </>
+                          ) : (
+                            <Pressable
+                              style={styles.reasoningToggle}
+                              onPress={() => setShowReasoning(true)}
+                              android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+                            >
+                              <Text style={styles.reasoningToggleText}>Размышление</Text>
+                              <Ionicons name="chevron-up" size={16} color="#8E8E93" style={{ marginLeft: 6 }} />
+                            </Pressable>
+                          )}
+                        </View>
+                      )}
+
+                      {evt.type === 'tool' && (
+                        <View style={styles.timelineStep}>
+                          <ToolCallBubble display={evt.data} category={evt.data.category || 'sandbox'} />
+                        </View>
+                      )}
+
+                      {evt.type === 'content' && (
+                        <View style={[styles.timelineStep, styles.timelineComment]}>
+                          <View style={styles.markdownWrap}>
+                            <Markdown style={markdownStyles}>{evt.data.replace(/\*$/g, '\\*')}</Markdown>
+                          </View>
+                        </View>
+                      )}
+
+                      {evt.type === 'final' && (
+                        <View style={styles.timelineStep}>
+                          <View style={styles.markdownWrap}>
+                            <Markdown style={markdownStyles}>{evt.data.replace(/\*$/g, '\\*')}</Markdown>
+                          </View>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </>
-              ) : (
-                <Pressable
-                  style={styles.reasoningToggle}
-                  onPress={() => setShowReasoning(true)}
-                  android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
-                >
-                  {isGenerating ? (
-                    <ReasoningTicker reasoning={reasoning} isGenerating={true} />
-                  ) : (
-                    <Text style={styles.reasoningToggleText}>Размышление</Text>
-                  )}
-                  <Ionicons name="chevron-up" size={16} color="#8E8E93" style={{ marginLeft: 6 }} />
-                </Pressable>
-              )}
-            </View>
-          ) : null}
-
-          {renderAttachments()}
-
-          {isAI && toolCallDisplays && toolCallDisplays.length > 0 ? (
-            <View style={styles.toolCallsContainer}>
-              {toolCallDisplays.map((d, i) => (
-                <ToolCallBubble key={`${d.id}-${i}`} display={d} category={d.category || 'sandbox'} />
-              ))}
-            </View>
-          ) : null}
-
-          {text ? (
-            <View style={styles.markdownWrap}>
-              {isGenerating && isAI ? (
-                <Text style={styles.streamingText}>{text}</Text>
-              ) : (
-                <Markdown style={markdownStyles}>{text.replace(/\*$/g, '\\*')}</Markdown>
-              )}
+                ));
+              })()}
             </View>
           ) : null}
 
@@ -232,23 +299,42 @@ const MessageBubble = memo(MessageBubbleInner, (prev, next) => {
   if (prev.isUser !== next.isUser) return false;
   if (prev.isAI !== next.isAI) return false;
   if (prev.isGenerating !== next.isGenerating) return false;
+  if (prev.streamingReasoning !== next.streamingReasoning) return false;
+  // agentIterations compare
+  const pai = prev.agentIterations;
+  const nai = next.agentIterations;
+  if (pai === nai) {
+    // same ref or both undefined
+  } else if (!pai || !nai || pai.length !== nai.length) {
+    return false;
+  } else {
+    for (let i = 0; i < pai.length; i++) {
+      if (pai[i] !== nai[i]) return false;
+    }
+  }
   // toolCallDisplays shallow compare
   const pd = prev.toolCallDisplays;
   const nd = next.toolCallDisplays;
-  if (pd === nd) return true;
-  if (pd?.length !== nd?.length) return false;
-  if (!pd && !nd) return true;
-  for (let i = 0; i < pd!.length; i++) {
-    if (pd![i] !== nd![i]) return false;
+  if (pd === nd) {
+    // ok
+  } else if (!pd || !nd || pd.length !== nd.length) {
+    return false;
+  } else {
+    for (let i = 0; i < pd.length; i++) {
+      if (pd[i] !== nd[i]) return false;
+    }
   }
   // attachments shallow compare
   const pa = prev.attachments;
   const na = next.attachments;
-  if (pa === na) return true;
-  if (pa?.length !== na?.length) return false;
-  if (!pa && !na) return true;
-  for (let i = 0; i < pa!.length; i++) {
-    if (pa![i] !== na![i]) return false;
+  if (pa === na) {
+    // ok
+  } else if (!pa || !na || pa.length !== na.length) {
+    return false;
+  } else {
+    for (let i = 0; i < pa.length; i++) {
+      if (pa[i] !== na[i]) return false;
+    }
   }
   // Skip callback comparison — they're stable now
   return true;
@@ -599,5 +685,47 @@ const styles = StyleSheet.create({
     fontSize: typography.sm.fontSize,
     color: '#8E8E93',
     marginTop: 2,
+  },
+  // Timeline styles
+  timelineContainer: {
+    paddingLeft: 4,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  timelineLine: {
+    width: 20,
+    alignItems: 'center',
+    marginRight: 12,
+    flexDirection: 'column',
+    alignSelf: 'stretch',
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#8E8E93',
+    marginTop: 6,
+  },
+  timelineDotActive: {
+    backgroundColor: '#30D158',
+  },
+  timelineConnector: {
+    width: 1,
+    flex: 1,
+    backgroundColor: '#38383A',
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  timelineContent: {
+    flex: 1,
+    paddingBottom: 16,
+  },
+  timelineStep: {
+    marginBottom: 8,
+  },
+  timelineComment: {
+    opacity: 0.6,
   },
 });

@@ -20,6 +20,16 @@ export interface Attachment {
   size?: number;
 }
 
+/** Одна итерация агента внутри сообщения ассистента */
+export interface AgentIteration {
+  id: string;           // stable key для React
+  index: number;        // 0, 1, 2...
+  reasoning?: string;
+  content: string;
+  toolCallDisplays?: ToolCallDisplay[];
+  timestamp: number;
+}
+
 /** Одно сообщение в чате */
 export interface Message {
   id: string;
@@ -31,7 +41,8 @@ export interface Message {
   timestamp: number;
   toolCalls?: ToolCall[];              // tool_calls от ассистента
   toolCallId?: string;                 // для role='tool' — ссылка на tool call
-  toolCallDisplays?: ToolCallDisplay[]; // массив UI-карточек инструментов
+  toolCallDisplays?: ToolCallDisplay[]; // массив UI-карточек инструментов (legacy/fallback)
+  agentIterations?: AgentIteration[];   // цепочка итераций агента
 }
 
 /** Один чат (диалог) */

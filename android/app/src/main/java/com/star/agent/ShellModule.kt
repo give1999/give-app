@@ -71,6 +71,12 @@ class ShellModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
     private fun copyProotFromAssets() {
         val prootFile = File(workspaceDir, "proot")
 
+        // If "proot" exists as a directory (from old version), delete it first
+        if (prootFile.exists() && prootFile.isDirectory) {
+            prootFile.deleteRecursively()
+            Log.i("ShellModule", "Deleted old proot directory: ${prootFile.absolutePath}")
+        }
+
         // Determine architecture
         val arch = when (android.os.Build.SUPPORTED_ABIS?.firstOrNull()) {
             "arm64-v8a" -> "aarch64"
