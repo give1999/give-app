@@ -52,6 +52,24 @@ export async function executeTool(
   console.log(`[ToolExecute] ℹ️  Found tool "${name}" category="${tool.category}" permission="${tool.permission}"`);
   try {
     const result = await tool.execute(args);
+
+    // --- Для обёрток над sandbox: exitCode ≠ 0 = ошибка ---
+    // sandbox_exec — "сырой" терминал, где exitCode=1 может быть нормой (grep без совпадений)
+    if (tool.category !== 'sandbox') {
+      let parsed: any;
+      try { parsed = JSON.parse(result); } catch { /* не JSON — пропускаем */ }
+      if (parsed && typeof parsed.exitCode === 'number' && parsed.exitCode !== 0) {
+        const errorMessage = parsed.stderr || parsed.error || `Command failed with exit code ${parsed.exitCode}`;
+        console.error(`[ToolExecute] ❌ ERROR name="${name}" exitCode=${parsed.exitCode} error="${errorMessage.slice(0, 200)}"`);
+        return {
+          success: false,
+          result,              // сохраняем оригинал для диагностики в UI
+          error: errorMessage,
+          category: tool.category,
+        };
+      }
+    }
+
     console.log(`[ToolExecute] ✅ SUCCESS name="${name}" resultLength=${result.length} resultPreview=${result.slice(0, 200)}`);
     return { success: true, result, category: tool.category };
   } catch (e: any) {
