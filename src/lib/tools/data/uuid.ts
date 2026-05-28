@@ -33,16 +33,24 @@ const tool: Tool = {
     const uuids: string[] = [];
     for (let i = 0; i < count; i++) {
       if (args.version === 'v7') {
-        const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
+        const timestamp = Date.now();
+        const bytes = new Uint8Array(16);
         try {
-          const result = await sandboxManager.execInSandbox(
-            `python3 -c "import uuid; print(uuid.uuid7())"`,
-            '/workspace', 5
-          );
-          uuids.push(result.stdout?.trim() || 'uuid-v7-unavailable');
+          // @ts-ignore
+          crypto.getRandomValues(bytes);
         } catch {
-          uuids.push('uuid-v7-unavailable');
+          for (let j = 0; j < 16; j++) bytes[j] = Math.floor(Math.random() * 256);
         }
+        bytes[0] = (timestamp / 0x10000000000) & 0xff;
+        bytes[1] = (timestamp / 0x100000000) & 0xff;
+        bytes[2] = (timestamp / 0x1000000) & 0xff;
+        bytes[3] = (timestamp / 0x10000) & 0xff;
+        bytes[4] = (timestamp / 0x100) & 0xff;
+        bytes[5] = timestamp & 0xff;
+        bytes[6] = (bytes[6] & 0x0f) | 0x70;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        uuids.push(`${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`);
       } else {
         // Криптографически стойкий UUID v4
         const bytes = new Uint8Array(16);

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Platform, Animated } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, TextInput, TouchableOpacity, StyleSheet, Platform, Animated, LayoutAnimation } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing, radius, sizes, typography } from '../design/theme';
@@ -17,6 +17,7 @@ interface ChatInputProps {
 
 function ChatInput({ value, onChangeText, onSend, onAttachment, onStop, autoFocus, disabled, hasAttachments }: ChatInputProps) {
   const insets = useSafeAreaInsets();
+  const [inputHeight, setInputHeight] = useState(36);
   const canSend = (value.trim().length > 0 || !!hasAttachments) && !disabled;
 
   const sendAnim = useRef(new Animated.Value(disabled ? 0 : 1)).current;
@@ -79,9 +80,9 @@ function ChatInput({ value, onChangeText, onSend, onAttachment, onStop, autoFocu
           <Ionicons name="add" size={24} color="#FFFFFF" />
         </TouchableOpacity>
 
-        <View style={styles.inputBox}>
+        <View style={[styles.inputBox, { height: Math.min(160, Math.max(48, inputHeight + 12)) }]}>
           <TextInput
-            style={[styles.input, disabled && { opacity: 0.5 }]}
+            style={[styles.input, { height: Math.min(140, Math.max(36, inputHeight)) }, disabled && { opacity: 0.5 }]}
             placeholder="Сообщение..."
             placeholderTextColor="#8E8E93"
             value={value}
@@ -91,6 +92,10 @@ function ChatInput({ value, onChangeText, onSend, onAttachment, onStop, autoFocu
             autoFocus={autoFocus}
             returnKeyType="default"
             editable={!disabled}
+            onContentSizeChange={(e) => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setInputHeight(e.nativeEvent.contentSize.height);
+            }}
           />
         </View>
 
@@ -158,7 +163,7 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 10,
   },
   circleBtn: {
@@ -170,25 +175,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#38383A',
+    marginBottom: 2,
   },
   inputBox: {
     flex: 1,
-    minHeight: 48,
-    maxHeight: 120,
     backgroundColor: '#1C1C1E',
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.lg,
-    justifyContent: 'center',
+    borderRadius: 24,
+    paddingHorizontal: spacing.lg + 2,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#38383A',
+    justifyContent: 'center',
   },
   input: {
-    flex: 1,
+    width: '100%',
     fontSize: typography.lg.fontSize,
-    lineHeight: 24,
     color: '#FFFFFF',
-    paddingVertical: spacing.sm,
-    maxHeight: 120,
+    paddingVertical: 0,
+    paddingHorizontal: 2,
   },
   sendBtn: {
     width: sizes.btnCircle,
@@ -215,6 +219,7 @@ const styles = StyleSheet.create({
   btnSlot: {
     width: sizes.btnCircle,
     height: sizes.btnCircle,
+    marginBottom: 2,
   },
   btnOverlay: {
     position: 'absolute',

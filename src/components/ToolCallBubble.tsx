@@ -405,10 +405,10 @@ function SandboxEnvRenderer({ display }: { display: ToolCallDisplay }) {
     <AccordionShell family="terminal" display={display}>
       <TerminalPrompt text={action === 'list' ? 'printenv' : `env ${action} ${display.args.name || ''}`} />
       <View style={termStyles.envGrid}>
-        {lines.map((line) => {
+        {lines.map((line, i) => {
           const [k, ...v] = line.split('=');
           return (
-            <View key={k} style={termStyles.envRow}>
+            <View key={i} style={termStyles.envRow}>
               <MonoText color={FAMILY_COLORS.terminal.muted} size={11}>{k}</MonoText>
               <MonoText color={FAMILY_COLORS.terminal.text} size={11}>{v.join('=')}</MonoText>
             </View>

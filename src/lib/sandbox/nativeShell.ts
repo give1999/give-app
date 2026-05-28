@@ -30,16 +30,32 @@ export async function execShell(
   }
 }
 
+function normalizeAndroidPath(path: string): string {
+  if (path && path.startsWith('/data/user/0/')) {
+    return path.replace('/data/user/0/', '/data/data/');
+  }
+  return path;
+}
+
 export async function getWorkspacePath(): Promise<string> {
   if (!ShellModule) {
     throw new Error('ShellModule не доступен.');
   }
-  return ShellModule.getWorkspacePath();
+  const path = await ShellModule.getWorkspacePath();
+  return normalizeAndroidPath(path);
 }
 
 export async function initSandbox(): Promise<string> {
   if (!ShellModule) {
     throw new Error('ShellModule не доступен.');
   }
-  return ShellModule.initSandbox();
+  const path = await ShellModule.initSandbox();
+  return normalizeAndroidPath(path);
+}
+
+export async function getNativeLibraryDir(): Promise<string> {
+  if (!ShellModule) {
+    throw new Error('ShellModule не доступен.');
+  }
+  return ShellModule.getNativeLibraryDir();
 }

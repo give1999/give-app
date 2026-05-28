@@ -27,31 +27,35 @@ const tool: Tool = {
   permission: 'safe',
   category: 'web',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { validateCount, shellEscapeSingle } = require('@/src/lib/sandbox/shellSanitize');
-    const count = validateCount(args.count, 1, 20);
-    const escapedQuery = shellEscapeSingle(args.query);
-    const result = await sandboxManager.execInSandbox(
-      `python3 -c "
-import urllib.request, json, urllib.parse
-q = urllib.parse.quote(${escapedQuery})
-url = f'https://api.duckduckgo.com/?q={q}&format=json&no_html=1'
-try:
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    resp = urllib.request.urlopen(req, timeout=10)
-    data = json.loads(resp.read())
-    results = []
-    for r in (data.get('RelatedTopics') or [])[:${count}]:
-        if isinstance(r, dict) and 'Text' in r:
-            results.append({'title': r['Text'][:100], 'url': r.get('FirstURL', '')})
-    print(json.dumps(results, ensure_ascii=False))
-except Exception as e:
-    print(json.dumps({'error': str(e)}")
-"`,
-      '/workspace',
-      30
-    );
-    return JSON.stringify(result);
+    try {
+      const query = args.query as string;
+      const count = Math.max(1, Math.min(20, (args.count as number) || 5));
+      const q = encodeURIComponent(query);
+      
+      const res = await fetch(`https://api.duckduckgo.com/?q=${q}&format=json&no_html=1`);
+      if (!res.ok) {
+        throw new Error(`HTTP Error ${res.status}`);
+      }
+      
+      const data = await res.json();
+      const results: Array<{ title: string; url: string }> = [];
+      
+      if (data.RelatedTopics) {
+        for (const topic of data.RelatedTopics) {
+          if (results.length >= count) break;
+          if (topic.Text) {
+            results.push({
+              title: topic.Text.slice(0, 100),
+              url: topic.FirstURL || '',
+            });
+          }
+        }
+      }
+      
+      return JSON.stringify({ stdout: JSON.stringify(results, null, 2), exitCode: 0 });
+    } catch (e: any) {
+      return JSON.stringify({ error: e.message, exitCode: 1 });
+    }
   },
 };
 

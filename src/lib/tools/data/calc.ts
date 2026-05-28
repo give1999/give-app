@@ -22,20 +22,30 @@ const tool: Tool = {
   permission: 'safe',
   category: 'data',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { shellEscapeSingle } = require('@/src/lib/sandbox/shellSanitize');
     try {
-      // Ограничить длину выражения для безопасности
-      if (args.expression.length > 500) {
+      const expr = args.expression as string;
+      if (expr.length > 500) {
         return JSON.stringify({ error: 'Expression too long (max 500 chars)', exitCode: 1 });
       }
-      const escapedExpr = shellEscapeSingle(args.expression);
-      const result = await sandboxManager.execInSandbox(
-        `python3 -c "import math; print(eval(${escapedExpr}, {'__builtins__': {}}, {**math.__dict__, 'sqrt': math.sqrt, 'pow': math.pow, 'log': math.log, 'log2': math.log2, 'log10': math.log10, 'sin': math.sin, 'cos': math.cos, 'tan': math.tan, 'pi': math.pi, 'e': math.e}))"`,
-        '/workspace',
-        10
-      );
-      return JSON.stringify(result);
+      
+      let sanitized = expr.toLowerCase().replace(/\^/g, '**');
+      
+      const functions = ['sqrt', 'sin', 'cos', 'tan', 'log', 'pow', 'abs', 'exp'];
+      for (const fn of functions) {
+        const regex = new RegExp(`\\b${fn}\\(`, 'g');
+        sanitized = sanitized.replace(regex, `Math.${fn}(`);
+      }
+      
+      sanitized = sanitized.replace(/\bpi\b/g, 'Math.PI');
+      sanitized = sanitized.replace(/\be\b/g, 'Math.E');
+      
+      const letters = sanitized.replace(/[0-9+\-*/%().\s,]|Math\.[a-z]+/gi, '');
+      if (letters.length > 0) {
+        return JSON.stringify({ error: 'Unsupported character or operation in expression', exitCode: 1 });
+      }
+      
+      const val = new Function(`return (${sanitized})`)();
+      return JSON.stringify({ stdout: String(val), exitCode: 0 });
     } catch (e: any) {
       return JSON.stringify({ error: e.message, exitCode: 1 });
     }

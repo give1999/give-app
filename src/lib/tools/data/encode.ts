@@ -1,5 +1,6 @@
 import { registerTool } from '../registry';
 import type { Tool } from '../registry';
+import { Buffer } from 'buffer';
 
 const tool: Tool = {
   definition: {
@@ -27,34 +28,47 @@ const tool: Tool = {
   permission: 'safe',
   category: 'data',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { shellEscapeSingle } = require('@/src/lib/sandbox/shellSanitize');
-    const escapedInput = shellEscapeSingle(args.input);
-    let cmd: string;
-    switch (args.format) {
-      case 'base64_encode':
-        cmd = `echo -n ${escapedInput} | base64`;
-        break;
-      case 'base64_decode':
-        cmd = `echo ${escapedInput} | base64 -d`;
-        break;
-      case 'url_encode':
-        cmd = `python3 -c "import urllib.parse; print(urllib.parse.quote(${escapedInput}))"`;
-        break;
-      case 'url_decode':
-        cmd = `python3 -c "import urllib.parse; print(urllib.parse.unquote(${escapedInput}))"`;
-        break;
-      case 'html_encode':
-        cmd = `python3 -c "import html; print(html.escape(${escapedInput}))"`;
-        break;
-      case 'html_decode':
-        cmd = `python3 -c "import html; print(html.unescape(${escapedInput}))"`;
-        break;
-      default:
-        return JSON.stringify({ error: `Unknown format: ${args.format}` });
+    try {
+      const input = args.input as string;
+      let stdout = '';
+      
+      switch (args.format) {
+        case 'base64_encode':
+          stdout = Buffer.from(input, 'utf-8').toString('base64');
+          break;
+        case 'base64_decode':
+          stdout = Buffer.from(input, 'base64').toString('utf-8');
+          break;
+        case 'url_encode':
+          stdout = encodeURIComponent(input);
+          break;
+        case 'url_decode':
+          stdout = decodeURIComponent(input);
+          break;
+        case 'html_encode':
+          stdout = input
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;');
+          break;
+        case 'html_decode':
+          stdout = input
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#x27;/g, "'")
+            .replace(/&#39;/g, "'");
+          break;
+        default:
+          return JSON.stringify({ error: `Unknown format: ${args.format}`, exitCode: 1 });
+      }
+      return JSON.stringify({ stdout, exitCode: 0 });
+    } catch (e: any) {
+      return JSON.stringify({ error: e.message, exitCode: 1 });
     }
-    const result = await sandboxManager.execInSandbox(cmd, '/workspace', 5);
-    return JSON.stringify(result);
   },
 };
 

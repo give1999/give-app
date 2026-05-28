@@ -1,14 +1,18 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Switch } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, Pressable, Switch, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { spacing, radius, typography } from '@/src/design/theme';
 import { useSettingsStore } from '@/src/stores/settingsStore';
+import { installRootfs, isRootfsInstalled } from '@/src/lib/sandbox/rootfs';
+import { sandboxManager } from '@/src/lib/sandbox/SandboxManager';
 
 export default function SandboxSettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const [reinstalling, setReinstalling] = useState(false);
 
   const daemonEnabled = useSettingsStore((s) => s.sandboxDaemonEnabled);
   const daemonMode = useSettingsStore((s) => s.sandboxDaemonMode);
@@ -140,6 +144,47 @@ export default function SandboxSettingsScreen() {
 
         {/* Обслуживание */}
         <View style={styles.section}>
+          <Pressable
+            style={[styles.dangerBtn, reinstalling && styles.disabledBtn]}
+            disabled={reinstalling}
+            onPress={() => {
+              Alert.alert(
+                'Переинициализировать sandbox',
+                'Это удалит текущую rootfs и создаст новую с обновлёнными бинарниками. Среды чатов будут сброшены.',
+                [
+                  { text: 'Отмена', style: 'cancel' },
+                  {
+                    text: 'Переинициализировать',
+                    style: 'destructive',
+                    onPress: async () => {
+                      setReinstalling(true);
+                      try {
+                        await sandboxManager.initialize();
+                        await installRootfs((p) => {
+                          console.log(`[Sandbox Reinstall] Progress: ${Math.round(p * 100)}%`);
+                        });
+                        const ok = await isRootfsInstalled();
+                        if (ok) {
+                          Alert.alert('Готово', 'Sandbox переинициализирован успешно.');
+                        } else {
+                          Alert.alert('Ошибка', 'Не удалось переинициализировать sandbox.');
+                        }
+                      } catch (e: any) {
+                        Alert.alert('Ошибка', e?.message || 'Неизвестная ошибка');
+                      } finally {
+                        setReinstalling(false);
+                      }
+                    },
+                  },
+                ]
+              );
+            }}
+            android_ripple={{ color: 'rgba(255,159,10,0.2)' }}
+          >
+            <Ionicons name="refresh-outline" size={18} color="#FF9F0A" />
+            <Text style={styles.warnBtnText}>{reinstalling ? 'Переинициализация...' : 'Переинициализировать sandbox'}</Text>
+          </Pressable>
+
           <Pressable style={[styles.dangerBtn]} android_ripple={{ color: 'rgba(255,69,58,0.2)' }}>
             <Ionicons name="trash-outline" size={18} color="#FF453A" />
             <Text style={styles.dangerBtnText}>Очистить все среды</Text>
@@ -189,6 +234,8 @@ const styles = StyleSheet.create({
   limitValue: { fontSize: typography.base.fontSize, color: '#8E8E93', fontWeight: '500' },
   dangerBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: '#1C1C1E', borderRadius: radius.lg, padding: spacing.lg },
   dangerBtnText: { fontSize: typography.base.fontSize, fontWeight: '500', color: '#FF453A' },
+  warnBtnText: { fontSize: typography.base.fontSize, fontWeight: '500', color: '#FF9F0A' },
+  disabledBtn: { opacity: 0.5 },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   infoText: { fontSize: typography.sm.fontSize, color: '#8E8E93' },
 });

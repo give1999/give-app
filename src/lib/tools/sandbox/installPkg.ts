@@ -27,20 +27,10 @@ const tool: Tool = {
   permission: 'safe',
   category: 'sandbox',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { validatePackageName, shellEscapeDouble } = require('@/src/lib/sandbox/shellSanitize');
-    try {
-      validatePackageName(args.package);
-      const yesFlag = args.yes !== false ? '-y' : '';
-      const result = await sandboxManager.execInSandbox(
-        `apt-get update && apt-get install ${yesFlag} ${shellEscapeDouble(args.package)}`,
-        '/workspace',
-        300
-      );
-      return JSON.stringify(result);
-    } catch (e: any) {
-      return JSON.stringify({ error: e.message, exitCode: 1 });
-    }
+    return JSON.stringify({
+      error: 'Менеджер пакетов apt-get не поддерживается в данной минимальной песочнице BusyBox. Все базовые системные утилиты Linux уже предустановлены в окружении.',
+      exitCode: 127
+    });
   },
 };
 

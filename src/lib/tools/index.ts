@@ -28,6 +28,8 @@ import './text/regex';
 import './daemon/submit';
 import './daemon/status';
 import './daemon/cancel';
+import './filesystem';
+import './documents';
 
 export { getAllToolDefinitions, executeTool, getTool, getAllTools, getToolsByCategory, getToolCategory } from './registry';
 export type { Tool } from './registry';

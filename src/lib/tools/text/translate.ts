@@ -30,18 +30,23 @@ const tool: Tool = {
   permission: 'safe',
   category: 'text',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { validateLanguageCode, shellEscapeSingle } = require('@/src/lib/sandbox/shellSanitize');
     try {
-      const to = validateLanguageCode(args.to);
-      const from = args.from ? validateLanguageCode(args.from) : 'auto';
-      const escapedText = shellEscapeSingle(args.text);
-      const result = await sandboxManager.execInSandbox(
-        `python3 -c "from translate import Translator; t = Translator(from_lang=${shellEscapeSingle(from)}, to_lang=${shellEscapeSingle(to)}); print(t.translate(${escapedText}))" 2>/dev/null || echo 'Translation not available - install translate'`,
-        '/workspace',
-        30
-      );
-      return JSON.stringify(result);
+      const text = args.text as string;
+      const to = (args.to as string || 'en').trim();
+      const from = (args.from as string || 'auto').trim();
+      
+      const q = encodeURIComponent(text);
+      const url = `https://api.mymemory.translated.net/get?q=${q}&langpair=${from}|${to}`;
+      
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP Error ${res.status}`);
+      }
+      
+      const data = await res.json();
+      const stdout = data.responseData?.translatedText || 'Translation failed';
+      
+      return JSON.stringify({ stdout, exitCode: 0 });
     } catch (e: any) {
       return JSON.stringify({ error: e.message, exitCode: 1 });
     }

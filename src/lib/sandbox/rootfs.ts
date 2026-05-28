@@ -1,6 +1,5 @@
-﻿import * as FileSystem from 'expo-file-system/legacy';
-import { Asset } from 'expo-asset';
-import { execShell, getWorkspacePath } from './nativeShell';
+import * as FileSystem from 'expo-file-system/legacy';
+import { execShell, getWorkspacePath, getNativeLibraryDir } from './nativeShell';
 
 const BUSYBOX_TOOLS = [
   'sh','ash','bash','ls','cat','cp','mv','rm','mkdir','rmdir','chmod','chown',
@@ -67,7 +66,7 @@ export async function isRootfsInstalled(): Promise<boolean> {
   try {
     const shPath = getRootfsDir() + 'bin/sh';
     const info = await FileSystem.getInfoAsync(shPath);
-    return info.exists && !info.isDirectory && (info.size || 0) > 100_000;
+    return info.exists && !info.isDirectory;
   } catch {
     return false;
   }
@@ -100,29 +99,21 @@ export async function installRootfs(onProgress?: (percent: number) => void): Pro
   }
   onProgress?.(0.2);
 
-  // 3. Загрузка и копирование ЕДИНСТВЕННОГО экземпляра busybox
-  console.log('[rootfs] Deploying core busybox binary...');
-  const busyboxAsset = Asset.fromModule(require('../../../assets/busybox/busybox.bin'));
-  await busyboxAsset.downloadAsync();
-  const busyboxUri = busyboxAsset.localUri || busyboxAsset.uri;
-  if (!busyboxUri) throw new Error('Failed to resolve busybox asset uri');
+  // 3. Создание символической ссылки на libbusybox.so из системного каталога нативных библиотек
+  console.log('[rootfs] Deploying relative symlink to native libbusybox.so...');
+  const nativeLibDir = await getNativeLibraryDir();
+  const workspacePath = await getWorkspacePath();
+  const nativeBinPath = `${workspacePath}/rootfs/bin`;
 
-  const bbBase64 = await FileSystem.readAsStringAsync(busyboxUri, { encoding: FileSystem.EncodingType.Base64 });
-  const destBusyboxPath = rootfsDir + 'bin/busybox';
-
-  // Пишем один раз
-  await FileSystem.writeAsStringAsync(destBusyboxPath, bbBase64, { encoding: FileSystem.EncodingType.Base64 });
+  // Создаем символические ссылки на нативные библиотеки вместо записи физических файлов
+  await execShell(`ln -sf ${nativeLibDir}/libbusybox.so ${nativeBinPath}/busybox`);
+  await execShell(`ln -sf ${nativeLibDir}/libproot.so ${nativeBinPath}/proot`);
+  await execShell(`ln -sf ${nativeLibDir}/libproot_loader.so ${nativeBinPath}/proot_loader`);
+  await execShell(`ln -sf ${nativeLibDir}/libproot_loader32.so ${nativeBinPath}/proot_loader32`);
   onProgress?.(0.5);
 
   // 4. Нативная инициализация симлинков (Разворачивание среды)
   console.log('[rootfs] Configuring permissions and creating relative symlinks...');
-
-  // Получаем реальный путь файловой системы (не file:// URI) для нативных команд
-  const workspacePath = await getWorkspacePath();
-  const nativeBinPath = `${workspacePath}/rootfs/bin`;
-
-  // Делаем busybox исполняемым
-  await execShell(`chmod 755 ${nativeBinPath}/busybox`);
 
   // Оптимизированный пакетный запуск создания относительных симлинков в одной шелл-сессии
   const toolsChunks: string[][] = [];

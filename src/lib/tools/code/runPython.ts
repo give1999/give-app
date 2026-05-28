@@ -6,7 +6,7 @@ const tool: Tool = {
     type: 'function',
     function: {
       name: 'code_run_python',
-      description: 'Выполнить Python-код в песочнице. Код запускается через python3. Результат — stdout программы.',
+      description: 'Выполнить Python-код в песочнице. Код запускается через python3. (Внимание: Python не предустановлен в этой версии песочницы).',
       parameters: {
         type: 'object',
         properties: {
@@ -27,32 +27,10 @@ const tool: Tool = {
   permission: 'safe',
   category: 'code',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { shellEscapeSingle, validateTimeout } = require('@/src/lib/sandbox/shellSanitize');
-    try {
-      const timeout = validateTimeout(args.timeout || 30);
-      // Записать код в файл, затем выполнить — безопаснее чем python3 -c '...'
-      const scriptRandom = (() => {
-        try { const b = new Uint8Array(4); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); }
-        catch { return Date.now().toString(36); }
-      })();
-      const scriptPath = `/workspace/_run_${Date.now()}_${scriptRandom}.py`;
-      // Уникальный heredoc-разделитель — криптографически стойкий + проверка на collision
-      const delimiter = `STAR_HEREDOC_${Date.now()}_${scriptRandom}_PY`;
-      if (args.code.includes(delimiter)) {
-        return JSON.stringify({ error: 'Code contains reserved delimiter string', exitCode: 1 });
-      }
-      const writeCmd = `cat << '${delimiter}' > ${shellEscapeSingle(scriptPath)}\n${args.code}\n${delimiter}`;
-      await sandboxManager.execInSandbox(writeCmd, '/workspace', 5);
-      const result = await sandboxManager.execInSandbox(
-        `python3 ${shellEscapeSingle(scriptPath)} && rm -f ${shellEscapeSingle(scriptPath)}`,
-        '/workspace',
-        timeout
-      );
-      return JSON.stringify(result);
-    } catch (e: any) {
-      return JSON.stringify({ error: e.message, exitCode: 1 });
-    }
+    return JSON.stringify({
+      error: 'Интерпретатор Python (python3) не установлен в данной минимальной песочнице BusyBox. Пожалуйста, используйте JavaScript (инструмент code_run_js) для выполнения вычислений и запуска вашего скрипта.',
+      exitCode: 127
+    });
   },
 };
 

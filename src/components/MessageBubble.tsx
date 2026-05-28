@@ -177,13 +177,17 @@ function MessageBubbleInner({ id, text, reasoning, isUser, isAI, attachments, is
                   }
                 });
 
-                // 2. Legacy reasoning (only if no agentIterations)
-                if (!agentIterations?.length && reasoning) {
+                // 2. Final or legacy reasoning (if not matching the last iteration's reasoning)
+                const lastIterReasoning = agentIterations?.length
+                  ? agentIterations[agentIterations.length - 1].reasoning
+                  : undefined;
+
+                if (reasoning && reasoning !== lastIterReasoning) {
                   events.push({ id: `${id}-reasoning`, type: 'reasoning', data: reasoning, isLast: false });
                 }
 
-                // 3. Legacy tool calls (only if no agentIterations)
-                if (!agentIterations?.length && toolCallDisplays?.length) {
+                // 3. Active tool calls (from the message itself, e.g. currently running tools)
+                if (toolCallDisplays?.length) {
                   toolCallDisplays.forEach((tc) => {
                     events.push({ id: `${id}-tool-${tc.id}`, type: 'tool', data: tc, isLast: false });
                   });

@@ -58,9 +58,6 @@ class ShellModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                 File(workspaceDir, dir).mkdirs()
             }
 
-            // Copy proot binary from assets if not exists or wrong size
-            copyProotFromAssets()
-
             promise.resolve(workspaceDir.absolutePath)
         } catch (e: Exception) {
             Log.e("ShellModule", "initSandbox error", e)
@@ -68,38 +65,12 @@ class ShellModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
     }
 
-    private fun copyProotFromAssets() {
-        val prootFile = File(workspaceDir, "proot")
-
-        // If "proot" exists as a directory (from old version), delete it first
-        if (prootFile.exists() && prootFile.isDirectory) {
-            prootFile.deleteRecursively()
-            Log.i("ShellModule", "Deleted old proot directory: ${prootFile.absolutePath}")
-        }
-
-        // Determine architecture
-        val arch = when (android.os.Build.SUPPORTED_ABIS?.firstOrNull()) {
-            "arm64-v8a" -> "aarch64"
-            "x86_64" -> "x86_64"
-            "armeabi-v7a" -> "arm"
-            "x86" -> "i686"
-            else -> "aarch64" // fallback
-        }
-
-        val assetName = "proot/proot-$arch"
-        val assetManager = reactApplicationContext.assets
-
+    @ReactMethod
+    fun getNativeLibraryDir(promise: Promise) {
         try {
-            assetManager.open(assetName).use { input ->
-                prootFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            prootFile.setExecutable(true, false)
-            Log.i("ShellModule", "Proot copied from assets: $assetName -> ${prootFile.absolutePath} (${prootFile.length()} bytes)")
+            promise.resolve(reactApplicationContext.applicationInfo.nativeLibraryDir)
         } catch (e: Exception) {
-            Log.e("ShellModule", "Failed to copy proot from assets (asset=$assetName)", e)
-            // Don't throw — let the caller handle missing proot
+            promise.reject("LIBRARY_DIR_ERROR", e.message, e)
         }
     }
 }

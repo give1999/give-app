@@ -22,41 +22,32 @@ const tool: Tool = {
   permission: 'safe',
   category: 'web',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { validateUrl, shellEscapeSingle } = require('@/src/lib/sandbox/shellSanitize');
     try {
-      validateUrl(args.url);
-      const escapedUrl = shellEscapeSingle(args.url);
-      const result = await sandboxManager.execInSandbox(
-        `python3 -c "
-import urllib.request
-from html.parser import HTMLParser
-
-class TextExtractor(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.text = []
-        self.skip = False
-    def handle_starttag(self, tag, attrs):
-        if tag in ('script', 'style', 'nav', 'footer'): self.skip = True
-    def handle_endtag(self, tag):
-        if tag in ('script', 'style', 'nav', 'footer'): self.skip = False
-    def handle_data(self, data):
-        if not self.skip: self.text.append(data.strip())
-
-try:
-    req = urllib.request.Request(${escapedUrl}, headers={'User-Agent': 'Mozilla/5.0'})
-    html = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', errors='ignore')
-    p = TextExtractor()
-    p.feed(html)
-    print('\\n'.join(t for t in p.text if t)[:20000])
-except Exception as e:
-    print(f'Error: {e}')
-"`,
-        '/workspace',
-        30
-      );
-      return JSON.stringify(result);
+      const url = args.url as string;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!res.ok) {
+        throw new Error(`HTTP Error ${res.status}`);
+      }
+      const html = await res.text();
+      
+      // Простая очистка HTML от скриптов, стилей и тегов для извлечения текста
+      let cleanText = html
+        .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, '')
+        .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, '')
+        .replace(/<nav[^>]*>([\s\S]*?)<\/nav>/gi, '')
+        .replace(/<footer[^>]*>([\s\S]*?)<\/footer>/gi, '')
+        .replace(/<\/h[1-6]>/gi, '\n\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .join('\n');
+      
+      const stdout = cleanText.slice(0, 20000);
+      return JSON.stringify({ stdout, exitCode: 0 });
     } catch (e: any) {
       return JSON.stringify({ error: e.message, exitCode: 1 });
     }

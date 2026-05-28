@@ -27,10 +27,12 @@ const tool: Tool = {
   category: 'daemon',
   execute: async (args) => {
     const { daemonManager } = require('@/src/lib/sandbox/DaemonManager');
-    const task = await daemonManager.submitTask({
-      command: args.command,
-      description: args.description || args.command,
-    });
+    const taskId = await daemonManager.submitTask(
+      'default',
+      args.command
+    );
+    const task = daemonManager.getTask(taskId);
+    if (!task) throw new Error('Не удалось создать задачу');
     return JSON.stringify({ taskId: task.id, status: task.status });
   },
 };

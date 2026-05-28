@@ -1,9 +1,11 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { spacing, radius, typography } from '@/src/design/theme';
+import { sandboxManager } from '@/src/lib/sandbox/SandboxManager';
+import { useChatStore } from '@/src/stores/chatStore';
 
 interface Environment {
   id: string;
@@ -17,6 +19,44 @@ export default function SandboxEnvironmentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadEnvs = useCallback(async () => {
+    try {
+      setLoading(true);
+      await sandboxManager.initialize();
+      const list = await sandboxManager.listEnvironments();
+      const conversations = useChatStore.getState().conversations;
+      const mapped = list.map((env) => {
+        let title = '';
+        if (env.conversationId === '_daemon') {
+          title = 'Фоновый демон ИИ';
+        } else if (env.conversationId === 'default') {
+          title = 'Общая среда (по умолчанию)';
+        } else {
+          const chat = conversations.find((c) => c.id === env.conversationId);
+          title = chat ? chat.title : `Чат (${env.conversationId.slice(0, 8)})`;
+        }
+        return {
+          id: env.conversationId,
+          chatTitle: title,
+          status: env.status,
+          diskUsageMb: Math.round((env.diskUsageBytes / 1024 / 1024) * 10) / 10,
+          createdAt: env.createdAt,
+        };
+      });
+      setEnvironments(mapped);
+    } catch (e) {
+      console.error('Failed to load environments:', e);
+      Alert.alert('Ошибка', 'Не удалось загрузить список сред');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEnvs();
+  }, [loadEnvs]);
 
   const handleDelete = useCallback((env: Environment) => {
     Alert.alert(
@@ -27,23 +67,39 @@ export default function SandboxEnvironmentsScreen() {
         {
           text: 'Удалить',
           style: 'destructive',
-          onPress: () => {
-            setEnvironments((prev) => prev.filter((e) => e.id !== env.id));
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await sandboxManager.deleteEnvironment(env.id);
+              await loadEnvs();
+            } catch (e) {
+              console.error('Failed to delete environment:', e);
+              Alert.alert('Ошибка', 'Не удалось удалить среду');
+            } finally {
+              setLoading(false);
+            }
           },
         },
       ]
     );
-  }, []);
+  }, [loadEnvs]);
 
-  const handleFreeze = useCallback((env: Environment) => {
-    setEnvironments((prev) =>
-      prev.map((e) =>
-        e.id === env.id
-          ? { ...e, status: e.status === 'active' ? 'frozen' : 'active' }
-          : e
-      )
-    );
-  }, []);
+  const handleFreeze = useCallback(async (env: Environment) => {
+    try {
+      setLoading(true);
+      if (env.status === 'active') {
+        await sandboxManager.freezeEnvironment(env.id);
+      } else {
+        await sandboxManager.setActiveEnvironment(env.id);
+      }
+      await loadEnvs();
+    } catch (e) {
+      console.error('Failed to change environment status:', e);
+      Alert.alert('Ошибка', 'Не удалось изменить состояние среды');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadEnvs]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -60,7 +116,12 @@ export default function SandboxEnvironmentsScreen() {
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {environments.length === 0 ? (
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Загрузка сред...</Text>
+          </View>
+        ) : environments.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="home-outline" size={48} color="#3A3A3C" />
             <Text style={styles.emptyTitle}>Нет сред</Text>
@@ -73,7 +134,9 @@ export default function SandboxEnvironmentsScreen() {
             <View key={env.id} style={styles.envCard}>
               <View style={styles.envHeader}>
                 <View style={[styles.statusDot, { backgroundColor: env.status === 'active' ? '#30D158' : '#8E8E93' }]} />
-                <Text style={styles.envTitle}>{env.chatTitle}</Text>
+                <Text style={styles.envTitle} numberOfLines={1} ellipsizeMode="tail">
+                  {env.chatTitle}
+                </Text>
               </View>
 
               <View style={styles.envMeta}>
@@ -123,6 +186,8 @@ const styles = StyleSheet.create({
   navTitle: { flex: 1, textAlign: 'center', fontSize: typography.lg.fontSize, fontWeight: '600', color: '#FFFFFF' },
   content: { flex: 1 },
   scrollContent: { padding: spacing.xl, gap: spacing.md },
+  loadingContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: spacing.md },
+  loadingText: { fontSize: typography.base.fontSize, color: '#8E8E93' },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: spacing.md },
   emptyTitle: { fontSize: typography.xl.fontSize, fontWeight: '600', color: '#8E8E93' },
   emptyDesc: { fontSize: typography.base.fontSize, color: '#636366', textAlign: 'center', maxWidth: 260 },
@@ -138,7 +203,7 @@ const styles = StyleSheet.create({
   envMeta: { flexDirection: 'row', justifyContent: 'space-between' },
   envMetaText: { fontSize: typography.sm.fontSize, color: '#8E8E93' },
   envActions: { flexDirection: 'row', gap: spacing.md, borderTopColor: '#2C2C2E', borderTopWidth: 1, paddingTop: spacing.md },
-  envActionBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  envActionBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flex: 1, justifyContent: 'center' },
   envActionText: { fontSize: typography.sm.fontSize, fontWeight: '500', color: '#007AFF' },
   deleteBtn: {},
 });

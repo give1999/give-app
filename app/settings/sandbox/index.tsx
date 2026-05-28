@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { spacing, radius, typography } from '@/src/design/theme';
 import { useSettingsStore } from '@/src/stores/settingsStore';
+import { sandboxManager } from '@/src/lib/sandbox/SandboxManager';
+import { useChatStore } from '@/src/stores/chatStore';
 
 export default function SandboxSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -23,6 +25,45 @@ export default function SandboxSettingsScreen() {
   const setMaxEnvSizeMb = useSettingsStore((s) => s.setSandboxMaxEnvironmentSizeMb);
   const setMaxTotalSizeMb = useSettingsStore((s) => s.setSandboxMaxTotalSizeMb);
   const setAutoCleanTmp = useSettingsStore((s) => s.setSandboxAutoCleanTmp);
+
+  const [stats, setStats] = useState({ totalSizeMb: 0, activeCount: 0, frozenCount: 0 });
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      const loadStats = async () => {
+        try {
+          await sandboxManager.initialize();
+          const envs = await sandboxManager.listEnvironments();
+          const activeId = sandboxManager.getActiveEnvironment() || useChatStore.getState().activeConversationId || 'default';
+          let totalBytes = 0;
+          let activeCnt = 0;
+          let frozenCnt = 0;
+          for (const env of envs) {
+            totalBytes += env.diskUsageBytes;
+            if (env.conversationId === activeId) {
+              activeCnt++;
+            } else {
+              frozenCnt++;
+            }
+          }
+          if (active) {
+            setStats({
+              totalSizeMb: Math.round((totalBytes / 1024 / 1024) * 10) / 10,
+              activeCount: activeCnt,
+              frozenCount: frozenCnt,
+            });
+          }
+        } catch (e) {
+          console.error('Failed to load sandbox stats:', e);
+        }
+      };
+      loadStats();
+      return () => { active = false; };
+    }, [])
+  );
+
+  const progressPercent = Math.min(100, (stats.totalSizeMb / maxTotalSizeMb) * 100);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -47,12 +88,12 @@ export default function SandboxSettingsScreen() {
           </View>
           <View style={styles.card}>
             <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: '0%' }]} />
+              <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
             </View>
-            <Text style={styles.progressText}>0 MB из {maxTotalSizeMb} MB</Text>
+            <Text style={styles.progressText}>{stats.totalSizeMb} MB из {maxTotalSizeMb} MB</Text>
             <View style={styles.statsRow}>
-              <Text style={styles.statText}>Активных сред: 0</Text>
-              <Text style={styles.statText}>Заморожено: 0</Text>
+              <Text style={styles.statText}>Активных сред: {stats.activeCount}</Text>
+              <Text style={styles.statText}>Заморожено: {stats.frozenCount}</Text>
             </View>
           </View>
         </View>

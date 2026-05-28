@@ -1,9 +1,10 @@
-import { execShell, getWorkspacePath, initSandbox } from './nativeShell';
+import { execShell, getWorkspacePath, initSandbox, getNativeLibraryDir } from './nativeShell';
 import { validateEnvId, validateSandboxPath, shellEscapeDouble } from './shellSanitize';
 import type { SandboxExecResult, EnvironmentState, EnvironmentStatus } from '@/src/types';
 
 export class SandboxManager {
   private workspacePath: string = '';
+  private nativeLibraryDir: string = '';
   private activeEnvironment: string | null = null;
   private initPromise: Promise<void> | null = null;
 
@@ -14,9 +15,11 @@ export class SandboxManager {
     this.initPromise = (async () => {
       try {
         this.workspacePath = await initSandbox();
+        this.nativeLibraryDir = await getNativeLibraryDir();
       } catch {
         try {
           this.workspacePath = await getWorkspacePath();
+          this.nativeLibraryDir = await getNativeLibraryDir();
         } catch {
           this.initPromise = null; // Позволить повторную попытку
           throw new Error('Failed to initialize sandbox: both initSandbox and getWorkspacePath failed');
@@ -37,9 +40,14 @@ export class SandboxManager {
     const envDir = `${this.workspacePath}/environments/${conversationId}`;
     const rootfsDir = `${this.workspacePath}/rootfs`;
     const packagesDir = `${this.workspacePath}/packages`;
-    const prootPath = `${this.workspacePath}/proot`;
+    const prootPath = `${this.nativeLibraryDir}/libproot.so`;
+    const loaderPath = `${this.nativeLibraryDir}/libproot_loader.so`;
+    const loader32Path = `${this.nativeLibraryDir}/libproot_loader32.so`;
 
     return [
+      `PROOT_LOADER=${loaderPath}`,
+      `PROOT_LOADER_32=${loader32Path}`,
+      `PROOT_TMP_DIR=${envDir}/tmp`,
       prootPath,
       '-r', rootfsDir,
       '-b', `${packagesDir}/usr:/usr`,
@@ -92,6 +100,10 @@ export class SandboxManager {
 
     // Используем активную среду или default
     const conversationId = this.activeEnvironment || 'default';
+    
+    // Гарантируем существование директорий среды перед запуском proot
+    await this.createEnvironment(conversationId);
+
     console.log(`[SandboxManager.execInSandbox] ℹ️  Using environment="${conversationId}" workspacePath="${this.workspacePath}"`);
     const fullCommand = this.buildProotCommand(conversationId, command, cwd);
     console.log(`[SandboxManager.execInSandbox] ℹ️  Full proot command length=${fullCommand.length} preview="${fullCommand.slice(0, 200)}..."`);
@@ -108,6 +120,43 @@ export class SandboxManager {
       exitCode: result.exitCode,
       durationMs: duration,
     };
+  }
+
+  async listEnvironments(): Promise<EnvironmentState[]> {
+    this.ensureInitialized();
+    const envsDir = `${this.workspacePath}/environments`;
+    try {
+      const result = await execShell(`ls -1 ${envsDir}`);
+      if (!result.stdout) return [];
+      const names = result.stdout.trim().split('\n').filter(Boolean);
+      const states: EnvironmentState[] = [];
+      for (const name of names) {
+        const diskUsage = await this.getDiskUsage(name);
+        states.push({
+          conversationId: name,
+          status: this.activeEnvironment === name ? 'active' : 'frozen',
+          workspacePath: `${envsDir}/${name}/workspace`,
+          homePath: `${envsDir}/${name}/home/agent`,
+          inboxPath: `${envsDir}/${name}/inbox`,
+          outboxPath: `${envsDir}/${name}/outbox`,
+          tmpPath: `${envsDir}/${name}/tmp`,
+          createdAt: Date.now(),
+          lastActiveAt: Date.now(),
+          diskUsageBytes: diskUsage,
+        });
+      }
+      return states;
+    } catch {
+      return [];
+    }
+  }
+
+  getActiveEnvironment(): string | null {
+    return this.activeEnvironment;
+  }
+
+  setActiveEnvironment(conversationId: string | null): void {
+    this.activeEnvironment = conversationId;
   }
 
   async freezeEnvironment(conversationId: string): Promise<void> {

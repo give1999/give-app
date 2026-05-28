@@ -22,17 +22,15 @@ const tool: Tool = {
   permission: 'safe',
   category: 'web',
   execute: async (args) => {
-    const { sandboxManager } = require('@/src/lib/sandbox/SandboxManager');
-    const { validateUrl, shellEscapeSingle } = require('@/src/lib/sandbox/shellSanitize');
     try {
-      validateUrl(args.url);
-      const escapedUrl = shellEscapeSingle(args.url);
-      const result = await sandboxManager.execInSandbox(
-        `curl -sL --max-time 30 ${escapedUrl} | head -c 50000`,
-        '/workspace',
-        35
-      );
-      return JSON.stringify(result);
+      const url = args.url as string;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!res.ok) {
+        throw new Error(`HTTP Error ${res.status}`);
+      }
+      const text = await res.text();
+      const stdout = text.slice(0, 50000);
+      return JSON.stringify({ stdout, exitCode: 0 });
     } catch (e: any) {
       return JSON.stringify({ error: e.message, exitCode: 1 });
     }

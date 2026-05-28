@@ -27,7 +27,7 @@ const tool: Tool = {
     try {
       const filter = args.filter ? ` | grep -i ${shellEscapeSingle(args.filter)}` : '';
       const result = await sandboxManager.execInSandbox(
-        `dpkg -l | tail -n +6 | awk '{print $2, $3}'${filter}`,
+        `busybox --list${filter}`,
         '/workspace',
         30
       );

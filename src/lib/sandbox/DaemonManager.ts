@@ -74,7 +74,8 @@ class DaemonManager {
             const result = await sandboxManager.execInSandbox(
               task.command,
               '/workspace',
-              3600 // 1 час макс
+              3600, // 1 час макс
+              DAEMON_CONVERSATION_ID
             );
 
             // Проверяем, был ли процесс отменён во время выполнения
